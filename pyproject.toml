@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "horse-scraper"
+version = "0.1.0"
+description = "A scraper for British horse racing details"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { file = "LICENSE" }
+authors = [{ name = "Lucas Curtin", email = "you@example.com" }]
+keywords = ["horse racing", "scraper", "selenium", "webdriver-manager"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "selenium>=4.34.2",
+    "webdriver-manager>=4.0.2",
+    "requests>=2.32.4",
+    "pandas>=2.3.1",
+]
+
+[project.scripts]
+horse-scraper = "horse_scraper:main"
+results-scraper = "results_scraper:main"

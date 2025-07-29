@@ -205,7 +205,6 @@ for horse in unique_horses:
     # 4) Build a dict with the raw text
     data = {
         "name": horse,
-        "general": general,
     }
 
     lines = general.split("\n")
