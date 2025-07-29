@@ -206,7 +206,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-
+chrome
+chromedriver
 chromedriver-mac-x64
 chrome-mac-x64
+
 *.json
+*.csv
+
