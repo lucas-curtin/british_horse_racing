@@ -97,6 +97,26 @@ for dt in periods:
             ec.presence_of_element_located((By.XPATH, '//*[@id="fixture-header-ui"]/h2/div[1]')),
         ).text
 
+        going_text = wait.until(
+            ec.presence_of_element_located(
+                (By.XPATH, '//*[@id="fixture-header-ui"]/div/div/div[1]')
+            )
+        ).text
+
+        # Weather
+        weather_text = wait.until(
+            ec.presence_of_element_located(
+                (By.XPATH, '//*[@id="fixture-header-ui"]/div/div/div[2]')
+            )
+        ).text
+
+        # Other info
+        other_text = wait.until(
+            ec.presence_of_element_located(
+                (By.XPATH, '//*[@id="fixture-header-ui"]/div/div/div[3]')
+            )
+        ).text
+
         # expand all race cards
         for btn in driver.find_elements(By.XPATH, "//*[@id='racecard-ui']/li/div[1]/div[5]/span"):
             driver.execute_script("arguments[0].scrollIntoView(true);", btn)
@@ -137,7 +157,6 @@ for dt in periods:
             races.append(
                 {
                     "race_index": i,
-                    "racecourse": racecourse,
                     "time": race_time,
                     "name": race_name,
                     "distance": race_dist,
@@ -152,6 +171,10 @@ for dt in periods:
                 "fixture_url": fixture_url,
                 "date": safe_text("//*[@id='fixture-header-ui']/h2/div[2]/span[1]"),
                 "year": year,
+                "racecourse": racecourse,
+                "going": going_text,
+                "weather": weather_text,
+                "other_text": other_text,
                 "races": races,
             },
         )
@@ -202,8 +225,11 @@ def parse_distance_to_metres(s: str) -> float:
     return total_yards * 0.9144
 
 
-# %%
-# Collect flattened records from the new JSON layout using list.extend
+# Constants for conversion
+MILE_M = 1609.34  # metres per mile
+FURLONG_M = 201.168  # metres per furlong
+YARD_M = 0.9144  # metres per yard
+
 records = []
 for file in sorted(results_dir.glob("*.json")):
     ym = file.stem  # e.g. "2025_06"
@@ -212,80 +238,105 @@ for file in sorted(results_dir.glob("*.json")):
     for fixture in fixtures:
         for race in fixture["races"]:
             for runner in race["runners"]:
+                # Base record with raw strings defaulting to ""
                 rec = {
                     "year_month": ym,
                     "fixture_index": fixture["fixture_index"],
                     "fixture_date": fixture["date"],
                     "fixture_year": fixture["year"],
                     "race_index": race["race_index"],
-                    "racecourse": race["racecourse"],
-                    "race_time_raw": race.get("time"),
-                    "race_name_raw": race.get("name"),
-                    "race_distance_raw": race.get("distance"),
-                    "winner_info_raw": race.get("winner_info"),
-                    "runner_index": runner.get("runner_index"),
-                    "position_raw": runner.get("position"),
-                    "horse_jockey_raw": runner.get("horse_jockey"),
-                    "trainer_owner_raw": runner.get("trainer_owner"),
-                    "distance_time_raw": runner.get("distance_time"),
-                    "sp_raw": runner.get("sp"),
+                    "racecourse": fixture["racecourse"],
+                    # "going": fixture["going"],
+                    "weather": fixture["weather"],
+                    # "other_text": fixture["other_text"],
+                    "race_time_raw": race.get("time", ""),
+                    "race_name_raw": race.get("name", ""),
+                    "race_distance_raw": race.get("distance", ""),
+                    "winner_info_raw": race.get("winner_info", ""),
+                    "runner_index": runner.get("runner_index", ""),
+                    "position_raw": runner.get("position", ""),
+                    "horse_jockey_raw": runner.get("horse_jockey", ""),
+                    "trainer_owner_raw": runner.get("trainer_owner", ""),
+                    "distance_time_raw": runner.get("distance_time", ""),
+                    "sp_raw": runner.get("sp", ""),
                 }
-                # Parse position
-                if rec["position_raw"]:
-                    parts = rec["position_raw"].split("\n")
-                    rec["position_rank"] = parts[0]
-                    rec["position_extra"] = parts[1] if len(parts) > 1 else None
-                else:
-                    rec["position_rank"] = None
-                    rec["position_extra"] = None
 
-                # Parse horse & jockey block
-                hj = rec["horse_jockey_raw"] or ""
-                lines = hj.split("\n")
-                rec["horse_name"] = lines[0] if len(lines) > 0 else None
-                rec["jockey_name"] = lines[1] if len(lines) > 1 else None
-                for line in lines[2:]:
+                # Parse position into rank and extra
+                parts = rec["position_raw"].split("\n") if rec["position_raw"] else []
+                rec["position_rank"] = parts[0] if parts else ""
+                rec["position_extra"] = parts[1] if len(parts) > 1 else ""
+                # Extract draw stall number only
+                m_draw = re.search(r"D:(\d+)", rec["position_extra"])
+                rec["draw_number"] = int(m_draw.group(1)) if m_draw else np.nan
+
+                # Parse horse & jockey names
+                hj_lines = rec["horse_jockey_raw"].split("\n")
+                rec["horse_name"] = hj_lines[0] if hj_lines else ""
+                rec["jockey_name"] = hj_lines[1] if len(hj_lines) > 1 else ""
+                for line in hj_lines[2:]:
                     if ":" in line:
                         key, val = line.split(":", 1)
-                        key = key.strip().lower().replace(" ", "_")
-                        rec[f"{key}_raw"] = val.strip()
+                        col = key.strip().lower().replace(" ", "_")
+                        rec[f"{col}_raw"] = val.strip()
 
-                # Parse trainer & owner
-                to = rec["trainer_owner_raw"] or ""
-                tlines = to.split("\n")
-                rec["trainer_name"] = tlines[0] if len(tlines) > 0 else None
-                rec["owner_name"] = tlines[1] if len(tlines) > 1 else None
+                # Parse trainer & owner names
+                to_lines = rec["trainer_owner_raw"].split("\n")
+                rec["trainer_name"] = to_lines[0] if to_lines else ""
+                rec["owner_name"] = to_lines[1] if len(to_lines) > 1 else ""
 
-                # Parse distance & finish time
-                dt = rec["distance_time_raw"] or ""
+                # Race-level distance: prefer normalized in parentheses
+                rd = rec.pop("race_distance_raw", "")
+                rd_val = rd.split("\n")[1].strip("()") if "\n" in rd else rd
+                rec["race_distance"] = rd_val
+                # Compute race distance in metres
+                m_m = re.search(r"(\d+)m", rd_val)
+                f_m = re.search(r"(\d+)f", rd_val)
+                y_m = re.search(r"(\d+)y", rd_val)
+                miles = int(m_m.group(1)) if m_m else 0
+                furlongs = int(f_m.group(1)) if f_m else 0
+                yards = int(y_m.group(1)) if y_m else 0
+                rec["race_distance_m"] = miles * MILE_M + furlongs * FURLONG_M + yards * YARD_M
+
+                # Runner-level raw parse for distance/time
+                dt = rec.pop("distance_time_raw", "")
                 dt_lines = dt.split("\n") if dt else []
                 if len(dt_lines) == 2:
-                    rec["distance_raw"] = dt_lines[0]
-                    rec["finish_time_raw"] = dt_lines[1]
+                    raw_dist, raw_time = dt_lines
                 elif len(dt_lines) == 1:
-                    # if no length, assume this is time
                     text = dt_lines[0]
-                    if re.search(r"\d+[ms]", text):
-                        rec["finish_time_raw"] = text
-                        rec["distance_raw"] = None
+                    if re.search(r"\d+m\s*[\d\.]+s", text):
+                        raw_dist, raw_time = "", text
                     else:
-                        rec["distance_raw"] = text
-                        rec["finish_time_raw"] = None
+                        raw_dist, raw_time = text, ""
                 else:
-                    rec["distance_raw"] = None
-                    rec["finish_time_raw"] = None
+                    raw_dist, raw_time = "", ""
+
+                rec["distance_raw"] = raw_dist
+                rec["finish_time_raw"] = raw_time
+
+                # Finish time into seconds
+                tm = re.match(r"(\d+)m\s*([\d\.]+)s", raw_time)
+                rec["finish_time_sec"] = (
+                    int(tm.group(1)) * 60 + float(tm.group(2)) if tm else np.nan
+                )
 
                 # SP
-                rec["sp"] = rec["sp_raw"]
+                rec["sp"] = rec.pop("sp_raw", "")
 
                 records.append(rec)
 
-# Create DataFrame
+# Build DataFrame and clean up raw columns
 results_raw = pd.DataFrame(records)
-
-raw_columns = [c for c in results_raw.columns if "raw" in c]
-
-results_df = results_raw.drop(columns=raw_columns)
-
+raw_cols = [c for c in results_raw.columns if c.endswith("_raw")]
+results_df = (
+    (
+        results_raw.drop(columns=raw_cols)
+        .set_index("year_month")
+        .drop(columns=["position_extra", "race_distance"])
+    )
+    .astype({"fixture_date": "str", "fixture_year": "str"})
+    .assign(race_date=lambda df: df["fixture_date"] + " " + df["fixture_year"])
+)
 results_df.to_csv(results_dir / "results_formatted.csv")
+
 # %%

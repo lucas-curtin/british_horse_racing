@@ -2,7 +2,6 @@
 """Scrape horse and jockey information from fixture list, with parallelism and progress bars."""
 
 import json
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -32,7 +31,6 @@ results_df = pd.read_csv(RESULTS_DIR / "results_formatted.csv")
 
 # Prepare horse list
 unique_horses = results_df["horse_name"].unique().tolist()
-unique_horses = [re.sub(r"\s*\([^)]*\)$", "", h) for h in unique_horses]
 
 # Prepare jockey list
 unique_jockeys = results_df["jockey_name"].unique().tolist()
@@ -61,7 +59,7 @@ def scrape_horses(horses_chunk, progress):
     returns list of dicts.
     """
     driver = make_driver(headless=True)
-    wait = WebDriverWait(driver, 15)
+    wait = WebDriverWait(driver, 5)
     main_tab = driver.current_window_handle
     base_url = "https://www.britishhorseracing.com/racing/horses/"
     details = []
