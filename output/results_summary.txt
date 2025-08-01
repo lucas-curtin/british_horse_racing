@@ -1,0 +1,314 @@
+Evaluation for 2024-06-30
+
+=== Predictions by Race ===
+Fixture 1 Race 1:
+Horse | ModelProb | SPOdds
+  Fidelius (GB) | 0.1973 | 0.0526
+  Smooth Silesie (IRE) | 0.1924 | 0.0385
+  Diligent Henry (GB) | 0.1650 | 0.0244
+  Kinnigoli Kid (IRE) | 0.1911 | 0.0667
+  Via Blanca (GB) | 0.1125 | 0.2000
+  Hint of The Jungle (IRE) | 0.0591 | 0.0769
+
+Fixture 1 Race 2:
+Horse | ModelProb | SPOdds
+  Rogue King (IRE) | 0.0843 | 0.2000
+  All Greek To Me (GB) | 0.1280 | 0.0769
+  Implacable (IRE) | 0.0451 | 0.1111
+  Warbler (GB) | 0.0919 | 0.0909
+  Bradman (GB) | 0.1016 | 0.0588
+  Normandy Vista (IRE) | 0.1218 | 0.0769
+
+Fixture 1 Race 3:
+Horse | ModelProb | SPOdds
+  Umbria (GER) | 0.1258 | 0.1000
+  Star Time (GB) | 0.0709 | 0.0294
+  Who's Glen (FR) | 0.0537 | 0.3333
+  Ribba Hill (IRE) | 0.0926 | 0.0909
+  Something (GB) | 0.0926 | 0.0588
+  Indian Romance (IRE) | 0.0747 | 0.0066
+  Joolianoss (IRE) | 0.1958 | 0.0435
+  Shady Bay (IRE) | 0.1604 | 0.0294
+  Edwardtheninth (GB) | 0.1161 | 0.1000
+  Capital Love (GB) | 0.0633 | 0.0033
+  City Waters (GB) | 0.0685 | 0.0033
+  Run of Luck (GB) | 0.1029 | 0.0099
+  Amserda (GB) | 0.1161 | 0.0050
+
+Fixture 1 Race 4:
+Horse | ModelProb | SPOdds
+  Bakersboy (GB) | 0.0367 | 0.0588
+  Warrior Square (GB) | 0.0940 | 0.0385
+  City Escape (IRE) | 0.1376 | 0.0526
+  Red Dwarf (IRE) | 0.1261 | 0.0667
+  High Court Judge (USA) | 0.0691 | 0.2500
+  Wallaroo (IRE) | 0.0751 | 0.0769
+  Meng Tian (GB) | 0.0787 | 0.0588
+  Prince Hector (IRE) | 0.1520 | 0.0769
+  Garden View (IRE) | 0.0886 | 0.1000
+  Starshot (IRE) | 0.0863 | 0.0435
+  Pelissanne (FR) | 0.0572 | 0.0196
+  Streetstorm (GB) | 0.0881 | 0.0149
+  Dirty Barry (USA) | 0.0472 | 0.0149
+
+Fixture 1 Race 5:
+Horse | ModelProb | SPOdds
+  Supaspecialawesome (IRE) | 0.0958 | 0.0588
+  Atlantic Gamble (GB) | 0.0652 | 0.1000
+  Little Heron (IRE) | 0.1088 | 0.0833
+  Crimson Coronet (GB) | 0.0686 | 0.0769
+  Rogue Soldier (IRE) | 0.0942 | 0.1667
+  Star Mind (GB) | 0.1503 | 0.0476
+  Orbital (GB) | 0.0726 | 0.1250
+  Cerulean Summer (IRE) | 0.1215 | 0.0244
+  Diffident Spirit (GB) | 0.0363 | 0.0667
+  Equion (GB) | 0.0983 | 0.0667
+
+Fixture 1 Race 6:
+Horse | ModelProb | SPOdds
+  Forgotten Treasure (GB) | 0.0519 | 0.1111
+  Roman Princess (GB) | 0.1104 | 0.0244
+  Mintana (GB) | 0.1071 | 0.2500
+  Sea The Buckthorn (GB) | 0.0863 | 0.2000
+  Reve de Magritte (FR) | 0.1147 | 0.0833
+  Outreach (GB) | 0.1016 | 0.3333
+  Ishani (GB) | 0.1229 | 0.0244
+  Red Walls (GB) | 0.1126 | 0.0909
+  Trois Blancs (GB) | 0.0910 | 0.0149
+  Storm Master (GB) | 0.1723 | 0.0244
+
+Fixture 2 Race 1:
+Horse | ModelProb | SPOdds
+  Letterston Lily (GB) | 0.1208 | 0.2500
+  Not Now Nathaniel (GB) | 0.1508 | 0.1111
+  Hard As Nails (GB) | 0.0915 | 0.0667
+  Raincloud (GB) | 0.1257 | 0.0079
+  Baby Evie (IRE) | 0.0927 | 0.0345
+  Apples Destiny (GB) | 0.0580 | 0.0050
+
+Fixture 2 Race 2:
+Horse | ModelProb | SPOdds
+  City Derby (IRE) | 0.4124 | 0.1111
+  Where's Bunny (IRE) | 0.0815 | 0.0667
+  Solly Attwell (IRE) | 0.1420 | 0.1429
+  Tupelo Mississippi (IRE) | 0.0729 | 0.0244
+  Faithfulflyer (IRE) | 0.0521 | 0.0909
+  Lone Star (GB) | 0.0490 | 0.0667
+  Vocal Duke (IRE) | 0.0674 | 0.0588
+  Ciel De Neige (FR) | 0.0872 | 0.2000
+  Balally Park (IRE) | 0.0379 | 0.0196
+  Our Sam (GB) | 0.0116 | 0.1000
+  Clonbury Bridge (IRE) | 0.1369 | 0.0526
+  Accidental Rebel (GB) | 0.1347 | 0.0244
+  Alqamar (GB) | 0.1068 | 0.0345
+
+Fixture 2 Race 3:
+Horse | ModelProb | SPOdds
+  Saint Bibiana (IRE) | 0.0846 | 0.1429
+  Jimli's Cave (IRE) | 0.0919 | 0.0149
+  Balkotic (FR) | 0.0250 | 0.0909
+  Secret Secret (IRE) | 0.0674 | 0.2000
+  Native Fighter (IRE) | 0.0702 | 0.0667
+  Lets Do This (IRE) | 0.1360 | 0.1111
+  Rumble B (IRE) | 0.0744 | 0.1429
+  Pateen (IRE) | 0.0337 | 0.0909
+  Famous Response (IRE) | 0.0462 | 0.0435
+
+Fixture 2 Race 4:
+Horse | ModelProb | SPOdds
+  Fiveonefive (IRE) | 0.1535 | 0.1667
+  King Otis (IRE) | 0.0848 | 0.0769
+  Book of Secrets (IRE) | 0.0778 | 0.0476
+  Well Educated (IRE) | 0.3229 | 0.0476
+  Elogio (IRE) | 0.0864 | 0.0149
+  Hurricane Ali (IRE) | 0.4685 | 0.1111
+  Nayati (FR) | 0.1343 | 0.0294
+  A Law of Her Own (IRE) | 0.0922 | 0.1000
+  Petit Tonnerre (FR) | 0.7142 | 0.1429
+  Je T'Ai Porte (IRE) | 0.1037 | 0.0909
+  Scots Poet (GB) | 0.3521 | 0.0769
+  Luttrell Lad (IRE) | 0.0672 | 0.1667
+
+Fixture 2 Race 5:
+Horse | ModelProb | SPOdds
+  Charlie Uberalles (GB) | 0.5702 | 0.2500
+  Bella Bliss (IRE) | 0.0810 | 0.2000
+  Francky du Berlais (FR) | 0.1061 | 0.0769
+  Final Orders (GB) | 0.1385 | 0.0769
+  Glory And Honour (IRE) | 0.1756 | 0.0667
+  Irish Blaze (IRE) | 0.1388 | 0.0769
+  Ganapathi (FR) | 0.3859 | 0.0667
+  Coqolino (FR) | 0.6378 | 0.0196
+  Mackenberg (GER) | 0.6024 | 0.0244
+  Arthur's Quay (IRE) | 0.0843 | 0.0833
+
+Fixture 2 Race 6:
+Horse | ModelProb | SPOdds
+  Dr Sanderson (IRE) | 0.0977 | 0.0909
+  Lermoos Legend (GB) | 0.5444 | 0.0909
+  Thank You Blue (GB) | 0.3108 | 0.0909
+  Melvich Bay (GB) | 0.0676 | 0.0526
+  Minella Youngy (IRE) | 0.3739 | 0.0769
+  Check My Pulse (IRE) | 0.0447 | 0.0667
+  Post No Bills (IRE) | 0.0178 | 0.0833
+  Gouet des Bruyeres (FR) | 0.0724 | 0.0244
+  Tonto's Spirit (GB) | 0.0937 | 0.0196
+
+Fixture 2 Race 7:
+Horse | ModelProb | SPOdds
+  Roll With It (IRE) | 0.1015 | 0.2000
+  Cash Again (FR) | 0.2602 | 0.0833
+  Calahill (IRE) | 0.1297 | 0.0588
+  Lights Are Green (IRE) | 0.2345 | 0.1111
+  The King of May (FR) | 0.3319 | 0.0667
+  Macavity (GB) | 0.0680 | 0.0769
+  The Electrician (IRE) | 0.0386 | 0.1250
+  Sputnik (IRE) | 0.0657 | 0.0588
+  Toucan Sam (GB) | 0.2629 | 0.0476
+  Baron Briggs (IRE) | 0.0478 | 0.0769
+
+Fixture 3 Race 1:
+Horse | ModelProb | SPOdds
+  Gale Mahler (IRE) | 0.6270 | 0.0526
+  Flying Fortune (IRE) | 0.0936 | 0.3333
+  Paddy de Pole (IRE) | 0.4030 | 0.0769
+  Speed Davis (FR) | 0.0870 | 0.1111
+  Scottish King (IRE) | 0.0490 | 0.0435
+  Lucky Stripe (GB) | 0.0141 | 0.0050
+  Kuma Beach (GB) | 0.3623 | 0.0050
+  Gentlieman Ross (GB) | 0.0698 | 0.0050
+
+Fixture 3 Race 2:
+Horse | ModelProb | SPOdds
+  Riskintheground (IRE) | 0.6576 | 0.0625
+  Dripsey Moon (IRE) | 0.0978 | 0.1667
+  Will Carver (IRE) | 0.5883 | 0.0909
+  Hyland (FR) | 0.5107 | 0.1429
+  Peking Rose (GB) | 0.1078 | 0.1429
+
+Fixture 3 Race 3:
+Horse | ModelProb | SPOdds
+  Coastguard Station (IRE) | 0.5225 | 0.1111
+  Fringill Dike (IRE) | 0.4389 | 0.1111
+  Breizh River (FR) | 0.6148 | 0.0769
+  Opening Bid (GB) | 0.5767 | 0.0667
+  Sir Tivo (FR) | 0.5577 | 0.0149
+  Issuing Authority (IRE) | 0.0940 | 0.0909
+  Cracking Destiny (IRE) | 0.4966 | 0.0294
+  Frere d'Armes (FR) | 0.6546 | 0.1250
+  Onemorefortheroad (GB) | 0.1080 | 0.0476
+  Fearless (IRE) | 0.1359 | 0.0667
+  Sacre Coeur (FR) | 0.5906 | 0.0588
+  Al Zaraqaan (GB) | 0.1066 | 0.0588
+  A Different Kind (IRE) | 0.1096 | 0.0476
+
+Fixture 3 Race 4:
+Horse | ModelProb | SPOdds
+  Hang In There (IRE) | 0.5997 | 0.0526
+  Percussion (GB) | 0.0986 | 0.0588
+  Monte Igueldo (FR) | 0.0752 | 0.0079
+  Mole Court (IRE) | 0.4422 | 0.1000
+  Streets of Doyen (IRE) | 0.0880 | 0.0588
+  Go On Chez (GB) | 0.5553 | 0.0909
+  Investment Manager (GB) | 0.5110 | 0.0667
+  Whistleinthedark (IRE) | 0.5574 | 0.0667
+  Imperial Alex (IRE) | 0.4794 | 0.1250
+  Court Master (IRE) | 0.0373 | 0.0294
+  Kinondo Kwetu (GB) | 0.0846 | 0.0526
+  Milan Bridge (IRE) | 0.3993 | 0.0385
+  Hidden Heroics (FR) | 0.5162 | 0.1667
+  Flaming Ambition (IRE) | 0.0775 | 0.1250
+
+Fixture 3 Race 5:
+Horse | ModelProb | SPOdds
+  Pyffo (IRE) | 0.0389 | 0.0769
+  Porter In The Park (IRE) | 0.0669 | 0.1250
+  Halifax (FR) | 0.0521 | 0.0667
+  Bucko's Boy (GB) | 0.0803 | 0.0909
+  Earth King (IRE) | 0.0849 | 0.1111
+  Lihyan (IRE) | 0.1010 | 0.0769
+  Juan Bermudez (GB) | 0.1131 | 0.1667
+  Nothin To Ask (IRE) | 0.4795 | 0.0909
+  Kingston Bridge (IRE) | 0.0781 | 0.0667
+  Wbee (IRE) | 0.0694 | 0.0345
+  Edison Kent (IRE) | 0.0713 | 0.0588
+  Calagogo (IRE) | 0.0614 | 0.0066
+  Pull Again Green (IRE) | 0.5283 | 0.1111
+
+Fixture 3 Race 6:
+Horse | ModelProb | SPOdds
+  Breaking Waves (IRE) | 0.0615 | 0.0345
+  Police Academy (IRE) | 0.4125 | 0.0769
+  Muskoka (IRE) | 0.5094 | 0.0588
+  Clararose (IRE) | 0.1048 | 0.1429
+  Walk of No Shame (IRE) | 0.1120 | 0.0833
+  Fourofakind (IRE) | 0.1054 | 0.0909
+  State of Bliss (IRE) | 0.0989 | 0.0833
+  Good Bye (GER) | 0.0460 | 0.0196
+  Stans The Man (IRE) | 0.3325 | 0.0435
+  Charlie's Glance (GB) | 0.0142 | 0.0769
+  Ted's Friend (IRE) | 0.0089 | 0.0476
+  Throne Hall (GB) | 0.2610 | 0.0345
+  Presenting Pete (IRE) | 0.0966 | 0.0526
+
+Fixture 3 Race 7:
+Horse | ModelProb | SPOdds
+  Maxcel (GB) | 0.0837 | 0.0769
+  Mostly Sunny (IRE) | 0.1041 | 0.1000
+  Right Now (IRE) | 0.0752 | 0.0667
+  Forget The Way (GB) | 0.1667 | 0.0769
+  Elham Valley (FR) | 0.1119 | 0.0769
+  Byzantine Empire (GB) | 0.3186 | 0.0345
+  Myristica (IRE) | 0.0757 | 0.0667
+  Sonning (IRE) | 0.1125 | 0.0294
+  Cillians Charm (IRE) | 0.0709 | 0.0123
+
+=== Calibration Metrics ===
+Log loss: 0.3926
+Brier score: 0.1174
+
+=== Per-Race Strategy ===
+Strategy=top_pick, Fixture=1, Race=1, Bets=1, Profit=18.00, ROI=18.000
+Strategy=top_pick, Fixture=1, Race=2, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=1, Race=3, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=1, Race=4, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=1, Race=5, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=1, Race=6, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=2, Race=1, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=2, Race=2, Bets=1, Profit=8.00, ROI=8.000
+Strategy=top_pick, Fixture=2, Race=3, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=2, Race=4, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=2, Race=5, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=2, Race=6, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=2, Race=7, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=3, Race=1, Bets=1, Profit=18.00, ROI=18.000
+Strategy=top_pick, Fixture=3, Race=2, Bets=1, Profit=15.00, ROI=15.000
+Strategy=top_pick, Fixture=3, Race=3, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=3, Race=4, Bets=1, Profit=18.00, ROI=18.000
+Strategy=top_pick, Fixture=3, Race=5, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=3, Race=6, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=top_pick, Fixture=3, Race=7, Bets=1, Profit=-1.00, ROI=-1.000
+Strategy=value_bets, Fixture=1, Race=1, Bets=4, Profit=15.00, ROI=3.750
+Strategy=value_bets, Fixture=1, Race=2, Bets=4, Profit=-4.00, ROI=-1.000
+Strategy=value_bets, Fixture=1, Race=3, Bets=12, Profit=-2.00, ROI=-0.167
+Strategy=value_bets, Fixture=1, Race=4, Bets=9, Profit=-9.00, ROI=-1.000
+Strategy=value_bets, Fixture=1, Race=5, Bets=5, Profit=12.00, ROI=2.400
+Strategy=value_bets, Fixture=1, Race=6, Bets=6, Profit=-6.00, ROI=-1.000
+Strategy=value_bets, Fixture=2, Race=1, Bets=5, Profit=-5.00, ROI=-1.000
+Strategy=value_bets, Fixture=2, Race=2, Bets=8, Profit=1.00, ROI=0.125
+Strategy=value_bets, Fixture=2, Race=3, Bets=4, Profit=-4.00, ROI=-1.000
+Strategy=value_bets, Fixture=2, Race=4, Bets=9, Profit=-9.00, ROI=-1.000
+Strategy=value_bets, Fixture=2, Race=5, Bets=9, Profit=-5.00, ROI=-0.556
+Strategy=value_bets, Fixture=2, Race=6, Bets=7, Profit=4.00, ROI=0.571
+Strategy=value_bets, Fixture=2, Race=7, Bets=6, Profit=-6.00, ROI=-1.000
+Strategy=value_bets, Fixture=3, Race=1, Bets=6, Profit=13.00, ROI=2.167
+Strategy=value_bets, Fixture=3, Race=2, Bets=3, Profit=13.00, ROI=4.333
+Strategy=value_bets, Fixture=3, Race=3, Bets=13, Profit=-4.00, ROI=-0.308
+Strategy=value_bets, Fixture=3, Race=4, Bets=13, Profit=6.00, ROI=0.462
+Strategy=value_bets, Fixture=3, Race=5, Bets=7, Profit=-7.00, ROI=-1.000
+Strategy=value_bets, Fixture=3, Race=6, Bets=10, Profit=19.00, ROI=1.900
+Strategy=value_bets, Fixture=3, Race=7, Bets=9, Profit=4.00, ROI=0.444
+
+=== Aggregate Performance ===
+top_pick: Total Bets=20, Profit=62.00, ROI=3.100
+value_bets: Total Bets=149, Profit=26.00, ROI=0.174
