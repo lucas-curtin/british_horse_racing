@@ -170,7 +170,7 @@ def scrape_monthly_results(start: date, end: date) -> None:
                 if c.find_elements(
                     By.CSS_SELECTOR, "div.table-cell.w10.time span.inline-field-value"
                 )
-            ][:1]
+            ]
 
             races: list[dict] = []
             for i, card in enumerate(cards, start=1):

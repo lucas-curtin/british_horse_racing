@@ -37,6 +37,7 @@ def make_driver() -> webdriver.Chrome:
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
+
     service = Service(executable_path=str(CHROMEDRIVER_PATH), log_path="NUL")
     logger.info("Initializing Chrome WebDriver")
     return webdriver.Chrome(service=service, options=options)
@@ -164,4 +165,69 @@ logger.info(f"Saved all fixture data to {output_file}")
 # %% Cleanup
 driver.quit()
 logger.info("Driver quit, scraping complete.")
+
+
+# %% Navigate to Betfair main betting page
+
+logger.info("Navigating to Betfair betting page...")
+driver = make_driver()
+driver.get("https://www.betfair.com/betting/")
+
+
+reject_xpath = '//*[@id="onetrust-reject-all-handler"]'
+WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, reject_xpath))).click()
+logger.info("Rejected all cookies")
+
+
+btn = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.XPATH, "//a[@href='horse-racing/s-7']"))
+)
+driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+btn.click()
+logger.info("Clicked fixture link")
+
+
+market_tab = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.ID, "ppb:tbd:view:navigationTab:YrA86BAAACIAjwcI/s/7"))
+)
+driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", market_tab)
+market_tab.click()
+
+# %%
+
+
+market_tab_xpath = '//*[@id="ppb:tbd:view:navigationTab:YrA86BAAACIAjwcI/s/7"]/div/div[2]'
+wait.until(EC.element_to_be_clickable((By.XPATH, market_tab_xpath))).click()
+logger.info("Switched to Win market tab")
+
+expand_panel_xpath = (
+    '//*[@id="ppb:tbd:view:navigationTab:YrA86BAAACIAjwcI/s/7"]/div/div/div/div[1]/div/button[2]'
+)
+wait.until(EC.element_to_be_clickable((By.XPATH, expand_panel_xpath))).click()
+logger.info("Expanded odds panel")
+
+title_xpath = (
+    '//*[@id="ppb:tbd:view:navigationTab:YrA86BAAACIAjwcI/s/7"]/div/div/div/div[3]/div/div/a'
+)
+market_title = wait.until(EC.presence_of_element_located((By.XPATH, title_xpath))).text
+logger.info(f"Market title: {market_title}")
+
+rows_xpath = '//*[@id="ppb:tbd:view:navigationTab:YrA86BAAACIAjwcI/s/7"]/div/div/div/div[3]/div/div/div[2]/div/div[2]/div/div[2]/div'
+rows = driver.find_elements(By.XPATH, rows_xpath)
+odds_list = []
+for idx, row in enumerate(rows, start=1):
+    runner_xpath = f"({rows_xpath})[{idx}]"
+    try:
+        text = row.text.strip()
+        odds_list.append(text)
+        logger.info(f"Row {idx}: {text}")
+    except Exception as e:
+        logger.error(f"Failed to extract row {idx}: {e}")
+
+betfair_data = {"market": market_title, "odds": odds_list}
+
+output_file = OUTPUT_DIR / "betfair_odds.json"
+with open(output_file, "w", encoding="utf-8") as f:
+    json.dump(betfair_data, f, ensure_ascii=False, indent=2)
+logger.info(f"Saved Betfair odds data to {output_file}")
 # %%

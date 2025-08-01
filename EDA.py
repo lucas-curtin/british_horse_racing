@@ -98,7 +98,6 @@ def parse_distance_to_metres(s: str) -> float:
 # %%
 # ? Race Info
 # Load raw data
-# Constants for conversion
 
 
 records = []
@@ -107,9 +106,23 @@ for file in sorted(RESULTS_DIR.glob("*.json")):
     with file.open() as f:
         fixtures = json.load(f)
     for fixture in fixtures:
+        # Pre-extract fixture-level features with defaults
+        going_text = fixture.get("going", "")
+        other_text = fixture.get("other_text", "")
+        # Primary/secondary going
+        glines = going_text.split("\n")
+        primary_going = glines[1] if len(glines) > 1 else ""
+        secondary_going = glines[2] if len(glines) > 2 else ""
+        # Going stick
+        m_stick = re.search(r"Going Stick\s*([\d\.]+)", going_text)
+        going_stick = float(m_stick.group(1)) if m_stick else np.nan
+        # Soil moisture
+        m_soil = re.search(r"Soil Moisture:\s*(\d+)%", other_text)
+        soil_moisture_pct = int(m_soil.group(1)) if m_soil else np.nan
+
         for race in fixture["races"]:
             for runner in race["runners"]:
-                # Base record with raw strings defaulting to ""
+                # Base record
                 rec = {
                     "year_month": ym,
                     "fixture_index": fixture["fixture_index"],
@@ -117,9 +130,14 @@ for file in sorted(RESULTS_DIR.glob("*.json")):
                     "fixture_year": fixture["year"],
                     "race_index": race["race_index"],
                     "racecourse": fixture["racecourse"],
-                    "going": fixture["going"],
-                    "weather": fixture["weather"],
-                    # "other_text": fixture["other_text"],
+                    # new going/soil features
+                    "primary_going": primary_going,
+                    "secondary_going": secondary_going,
+                    "going_stick": going_stick,
+                    "soil_moisture_pct": soil_moisture_pct,
+                    # existing fields
+                    "going": going_text,
+                    "weather": fixture.get("weather", ""),
                     "race_time_raw": race.get("time", ""),
                     "race_name_raw": race.get("name", ""),
                     "race_distance_raw": race.get("distance", ""),
@@ -132,34 +150,43 @@ for file in sorted(RESULTS_DIR.glob("*.json")):
                     "sp_raw": runner.get("sp", ""),
                 }
 
-                # Parse position into rank and extra
+                # Parse position
                 parts = rec["position_raw"].split("\n") if rec["position_raw"] else []
                 rec["position_rank"] = re.sub(r"(?:st|nd|rd|th)$", "", parts[0]) if parts else ""
                 rec["position_extra"] = parts[1] if len(parts) > 1 else ""
-                # Extract draw stall number only
                 m_draw = re.search(r"D:(\d+)", rec["position_extra"])
                 rec["draw_number"] = int(m_draw.group(1)) if m_draw else np.nan
 
-                # Parse horse & jockey names
+                # Horse/jockey & handicap
                 hj_lines = rec["horse_jockey_raw"].split("\n")
                 rec["horse_name"] = hj_lines[0] if hj_lines else ""
                 rec["jockey_name"] = hj_lines[1] if len(hj_lines) > 1 else ""
                 for line in hj_lines[2:]:
                     if ":" in line:
-                        key, val = line.split(":", 1)
-                        col = key.strip().lower().replace(" ", "_")
-                        rec[f"{col}_raw"] = val.strip()
+                        k, v = line.split(":", 1)
+                        rec[k.strip().lower().replace(" ", "_") + "_raw"] = v.strip()
 
-                # Parse trainer & owner names
+                # Handicap fields
+                raw_off = rec.pop("handicap_ran_off_raw", None)
+                rec["handicap_ran_off"] = int(raw_off) if raw_off not in (None, "") else np.nan
+                raw_perf = rec.pop("bha_performance_figure_raw", None)
+                rec["bha_performance_figure"] = (
+                    int(raw_perf) if raw_perf not in (None, "") else np.nan
+                )
+                raw_mark = rec.pop("current_handicap_mark_raw", "")
+                mm = re.match(r"([A-Za-z]):\s*(\d+)", raw_mark)
+                rec["current_mark_surface"] = mm.group(1) if mm else ""
+                rec["current_mark"] = int(mm.group(2)) if mm else np.nan
+
+                # Trainer/owner
                 to_lines = rec["trainer_owner_raw"].split("\n")
                 rec["trainer_name"] = to_lines[0] if to_lines else ""
                 rec["owner_name"] = to_lines[1] if len(to_lines) > 1 else ""
 
-                # Race-level distance: prefer normalized in parentheses
+                # Race distance
                 rd = rec.pop("race_distance_raw", "")
                 rd_val = rd.split("\n")[1].strip("()") if "\n" in rd else rd
                 rec["race_distance"] = rd_val
-                # Compute race distance in metres
                 m_m = re.search(r"(\d+)m", rd_val)
                 f_m = re.search(r"(\d+)f", rd_val)
                 y_m = re.search(r"(\d+)y", rd_val)
@@ -168,7 +195,7 @@ for file in sorted(RESULTS_DIR.glob("*.json")):
                 yards = int(y_m.group(1)) if y_m else 0
                 rec["race_distance_m"] = miles * MILE_M + furlongs * FURLONG_M + yards * YARD_M
 
-                # Runner-level raw parse for distance/time
+                # Distance/time
                 dt = rec.pop("distance_time_raw", "")
                 dt_lines = dt.split("\n") if dt else []
                 if len(dt_lines) == 2:
@@ -181,14 +208,11 @@ for file in sorted(RESULTS_DIR.glob("*.json")):
                         raw_dist, raw_time = text, ""
                 else:
                     raw_dist, raw_time = "", ""
-
                 rec["distance_raw"] = raw_dist
                 rec["finish_time_raw"] = raw_time
-
-                # Finish time into seconds
                 tm = re.match(r"(\d+)m\s*([\d\.]+)s", raw_time)
                 rec["finish_time_sec"] = (
-                    int(tm.group(1)) * 60 + float(tm.group(2)) if tm else np.nan
+                    (int(tm.group(1)) * 60 + float(tm.group(2))) if tm else np.nan
                 )
 
                 # SP
@@ -196,10 +220,9 @@ for file in sorted(RESULTS_DIR.glob("*.json")):
 
                 records.append(rec)
 
-# Build DataFrame and clean up raw columns
+# Build DataFrame
 results_raw = pd.DataFrame(records)
-
-race_results = (
+race_raw = (
     results_raw.astype({"fixture_date": "str", "fixture_year": "str"}).assign(
         race_date=lambda df: pd.to_datetime(df["fixture_date"] + " " + df["fixture_year"]),
         starting_prob=lambda df: df["sp"].apply(frac_to_prob),
@@ -220,9 +243,14 @@ race_results = (
         "fixture_year",
         "weather",
         "going",
+        "primary_going",
+        "secondary_going",
     ]
 )
 
+raw_cols = [c for c in race_raw.columns if c.endswith("_raw")]
+
+race_results = race_raw.drop(columns=raw_cols)
 
 # %%
 # ? Horse Info
@@ -323,13 +351,10 @@ merged_df = race_results.merge(horse_df, on="horse_name", how="left").merge(
 merged_df["race_age"] = (merged_df["race_date"] - merged_df["foaled"]).dt.days
 
 
-raw_cols = [c for c in merged_df.columns if c.endswith("_raw")]
-
-model_input = merged_df.drop(columns=raw_cols).set_index("race_date")
-
-model_input.to_csv(OUTPUT_DIR / "merged_results.csv")
+merged_df.set_index("race_date").to_csv(OUTPUT_DIR / "merged_results.csv")
 # %%
 # ? Fixture Loader
+
 
 FIXTURES_JSON = OUTPUT_DIR / "fixtures.json"
 with open(FIXTURES_JSON, "r", encoding="utf-8") as f:
@@ -337,78 +362,104 @@ with open(FIXTURES_JSON, "r", encoding="utf-8") as f:
 
 records = []
 for fidx, fixture in enumerate(fixtures, start=1):
-    # split type_date into day and race type
-    td = fixture.get("type_date", "").split("\n")
-    fixture_day = td[0]
-    fixture_type = td[1] if len(td) > 1 else ""
+    going_txt = fixture.get("going", "")
+    other_txt = fixture.get("other", "")
+    weather_txt = fixture.get("weather", "")
 
-    # split first_race into time and session
-    fr = fixture.get("first_race", "").split("\n")
-    first_race_time = fr[0]
-    session = fr[1] if len(fr) > 1 else ""
+    # primary/secondary going
+    glines = going_txt.split("\n")
+    primary_going = glines[1] if len(glines) > 1 else ""
+    secondary_going = glines[2] if len(glines) > 2 else ""
 
-    going_raw = fixture.get("going", "")
-    weather_raw = fixture.get("weather", "")
-    other_raw = fixture.get("other", "")
+    # going stick
+    m_stick = re.search(r"Going Stick\s*([\d\.]+)", going_txt)
+    going_stick = float(m_stick.group(1)) if m_stick else np.nan
+
+    # soil moisture (in either going or other)
+    combined = going_txt + "\n" + other_txt
+    m_soil1 = re.search(r"([\d\.]+)%\s*soil moisture", combined, flags=re.IGNORECASE)
+    m_soil2 = re.search(r"Soil Moisture[:\s]*([\d\.]+)%", combined, flags=re.IGNORECASE)
+    soil_moisture_pct = (
+        float(m_soil1.group(1)) if m_soil1 else float(m_soil2.group(1)) if m_soil2 else np.nan
+    )
+
+    weather_cat = classify_weather(weather_txt)
+    day_str = fixture.get("type_date", "").split("\n", 1)[0]  # e.g. "SAT 02 AUG"
 
     for ridx, race in enumerate(fixture.get("races", []), start=1):
-        # normalize race distance to the parenthetical value if present
-        rd = race.get("distance", "")
-        race_distance = rd.split("\n")[1].strip("()") if "\n" in rd else rd
+        rd_raw = race.get("distance", "")
+        race_dist_str = rd_raw.split("\n", 1)[-1].strip("()")
 
         for jidx, runner in enumerate(race.get("runners", []), start=1):
-            # split horse/jockey
             hj = runner.get("horse_jockey", "").split("\n")
-            horse_name = hj[0] if hj else ""
-            jockey_name = hj[1] if len(hj) > 1 else ""
-
-            # split trainer/owner
             to = runner.get("trainer_owner", "").split("\n")
-            trainer_name = to[0] if to else ""
-            owner_name = to[1] if len(to) > 1 else ""
+            form = runner.get("form_type", "")
+
+            # current_mark_surface and current_mark from the same regex
+            m_mark = re.search(r"([A-Za-z]):\s*(\d+)", form)
+            if m_mark:
+                current_mark_surface = m_mark.group(1)
+                current_mark = int(m_mark.group(2))
+            else:
+                current_mark_surface = ""
+                current_mark = np.nan
+
+            # handicap ran off
+            m_h = re.search(r"H:\s*(\d+)", form)
+            handicap_ran_off = int(m_h.group(1)) if m_h else np.nan
+
+            # bha_performance_figure
+            bha_perf = pd.to_numeric(runner.get("bha_rating", ""), errors="coerce")
+
+            # draw_number
+            m_draw = re.search(r"(\d+)", runner.get("no_draw", ""))
+            draw_number = int(m_draw.group(1)) if m_draw else 0
 
             records.append(
                 {
-                    # fixture-level
                     "fixture_index": fidx,
-                    "fixture_day": fixture_day,
-                    "fixture_type": fixture_type,
-                    "racecourse": fixture.get("racecourse", ""),
-                    "first_race_time": first_race_time,
-                    "session": session,
-                    "going_raw": going_raw,
-                    "weather_raw": weather_raw,
-                    "other_raw": other_raw,
-                    # race-level
                     "race_index": ridx,
-                    "race_time": race.get("time", ""),
-                    "race_name": race.get("name", ""),
-                    "race_distance_raw": race_distance,
-                    "conditions": race.get("conditions", ""),
-                    # runner-level
+                    "racecourse": fixture.get("racecourse", ""),
+                    "primary_going": primary_going,
+                    "secondary_going": secondary_going,
+                    "going_stick": going_stick,
+                    "soil_moisture_pct": soil_moisture_pct,
                     "runner_index": jidx,
-                    "draw": runner.get("no_draw", "").split("\n")[0],
-                    "horse_name": horse_name,
-                    "jockey_name": jockey_name,
-                    "age": runner.get("age", ""),
-                    "form_type": runner.get("form_type", ""),
-                    "bha_rating": runner.get("bha_rating", ""),
-                    "weight_st_lb": runner.get("weight", ""),
-                    "trainer_name": trainer_name,
-                    "owner_name": owner_name,
-                    "odds_raw": runner.get("odds", ""),
+                    "draw_number": draw_number,
+                    "horse_name": hj[0] if hj else "",
+                    "jockey_name": hj[1] if len(hj) > 1 else "",
+                    "handicap_ran_off": handicap_ran_off,
+                    "bha_performance_figure": bha_perf,
+                    "current_mark_surface": current_mark_surface,
+                    "current_mark": current_mark,
+                    "trainer_name": to[0] if to else "",
+                    "owner_name": to[1] if len(to) > 1 else "",
+                    "race_distance_m": parse_distance_to_metres(race_dist_str),
+                    "race_date": pd.to_datetime(
+                        f"{day_str} 2025 {race.get('time', '')}",
+                        format="%a %d %b %Y %I:%M%p",
+                        dayfirst=True,
+                    ),
+                    "weather_category": weather_cat,
+                    "DNF": False,
+                    "WD": False,
+                    "NR": False,
                 }
             )
 
-# build DataFrame
-fixture_df = pd.DataFrame(records)
+# assemble DataFrame & order columns to match race_results
 
-# apply conversions & parsing
-fixture_df = fixture_df.assign(
-    weather_category=lambda d: d["weather_raw"].apply(classify_weather),
-    weight_kg=lambda d: d["weight_st_lb"].apply(wt_to_kg),
-    starting_prob=lambda d: d["odds_raw"].apply(frac_to_prob),
-    race_distance_m=lambda d: d["race_distance_raw"].apply(parse_distance_to_metres),
-).drop(columns=["going_raw", "weather_raw", "other_raw", "odds_raw"])
+fixture_results = pd.DataFrame(records).drop(columns=["primary_going", "secondary_going"])
+
+fixture_output = (
+    fixture_results.merge(horse_df, on="horse_name", how="left")
+    .merge(jockey_df, on="jockey_name", how="left")
+    .assign(race_age=lambda df: (df["race_date"] - df["foaled"]).dt.days)
+)
+
+fixture_output.set_index("race_date").to_csv(OUTPUT_DIR / "fixture_results.csv")
+
+
+# %%
 
 # %%
