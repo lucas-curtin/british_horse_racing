@@ -22,7 +22,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
-from tqdm import tqdm
 
 
 # ————— WebDriver factory —————
@@ -41,7 +40,10 @@ def make_driver(config: Config) -> webdriver.Chrome:
 
 
 # ————— Utility —————
-def safe_text(driver_or_elem, xpath: str) -> str:
+def safe_text(
+    driver_or_elem: webdriver.Chrome | webdriver.remote.webelement.WebElement,
+    xpath: str,
+) -> str:
     """Safely retrieve the text content of the first element matching the given XPath."""
     try:
         elem = driver_or_elem.find_element(By.XPATH, xpath)
@@ -136,7 +138,6 @@ def scrape_fixture(
 
     races: list[dict] = []
     for i, card in enumerate(cards, start=1):
-        # CSS selectors for race data (same as before)
         race_time = card.find_element(By.CSS_SELECTOR, ".table-cell.w10.time").text
         race_name = card.find_element(By.CSS_SELECTOR, ".table-cell.w40.name").text
         race_dist = card.find_element(By.CSS_SELECTOR, ".table-cell.w20.race-distance").text
@@ -213,106 +214,130 @@ def scrape_monthly_results(config: Config) -> None:
 
 
 # ————— Part 2: Scrape horse and jockey details —————
-def scrape_horses(horses_chunk: list[str], progress: tqdm, config: Config) -> list[dict]:
+def _scrape_single_horse(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    horse: str,
+    main_tab: str,
+) -> dict | None:
+    """Helper to scrape a single horse safely."""
+    base_url = "https://www.britishhorseracing.com/racing/horses/"
+    try:
+        driver.get(base_url)
+        inp = wait.until(
+            ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]/div[2]/input')),
+        )
+        inp.clear()
+        inp.send_keys(horse)
+        wait.until(
+            ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[2]')),
+        ).click()
+
+        link = wait.until(
+            ec.element_to_be_clickable((By.XPATH, '//*[@id="horses-list"]/div/a')),
+        )
+        href = link.get_attribute("href")
+        driver.execute_script("window.open(arguments[0]);", href)
+        driver.switch_to.window(driver.window_handles[-1])
+        logger.info(f"Scraping horse profile: {horse} ({href})")
+
+        general = wait.until(
+            ec.presence_of_element_located((By.XPATH, '//*[@id="horse-single-info"]/div[1]')),
+        ).text
+        specific = driver.find_element(By.XPATH, '//*[@id="horse-single-info"]/div[2]').text
+
+        data: dict = {"name": horse, "url": href}
+        lines = general.split("\n")
+        if len(lines) > 1 and "b." in lines[1]:
+            t, y = lines[1].split("b.", 1)
+            data["type"] = t.strip()
+            data["birth_year"] = y.strip()
+
+        for line in specific.splitlines():
+            if ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            k = k.strip().lower().replace(" ", "_")
+            if k != "associated_content":
+                data[k] = v.strip()
+    except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+        logger.error(f"Failed to scrape horse {horse}: {e}")
+        return None
+    else:
+        return data
+    finally:
+        if len(driver.window_handles) > 1:
+            driver.close()
+            driver.switch_to.window(main_tab)
+
+
+def scrape_horses(horses_chunk: list[str], config: Config) -> list[dict]:
     """Scrape detailed information for each horse in the list."""
     driver = make_driver(config)
     wait = WebDriverWait(driver, 5)
     main_tab = driver.current_window_handle
-    base_url = "https://www.britishhorseracing.com/racing/horses/"
     details: list[dict] = []
 
     for horse in horses_chunk:
-        logger.info(f"Scraping horse profile: {horse}")
-        try:
-            driver.get(base_url)
-            inp = wait.until(
-                ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]/div[2]/input')),
-            )
-            inp.clear()
-            inp.send_keys(horse)
-            wait.until(
-                ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[2]')),
-            ).click()
-
-            link = wait.until(
-                ec.element_to_be_clickable((By.XPATH, '//*[@id="horses-list"]/div/a')),
-            )
-            href = link.get_attribute("href")
-            driver.execute_script("window.open(arguments[0]);", href)
-            driver.switch_to.window(driver.window_handles[-1])
-
-            general = wait.until(
-                ec.presence_of_element_located((By.XPATH, '//*[@id="horse-single-info"]/div[1]')),
-            ).text
-            specific = driver.find_element(By.XPATH, '//*[@id="horse-single-info"]/div[2]').text
-
-            data: dict = {"name": horse}
-            lines = general.split("\n")
-            if len(lines) > 1 and "b." in lines[1]:
-                t, y = lines[1].split("b.", 1)
-                data["type"] = t.strip()
-                data["birth_year"] = y.strip()
-
-            for line in specific.splitlines():
-                if ":" not in line:
-                    continue
-                k, v = line.split(":", 1)
-                k = k.strip().lower().replace(" ", "_")
-                if k != "associated_content":
-                    data[k] = v.strip()
-
-            details.append(data)
-        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
-            logger.error(f"Failed to scrape horse {horse}: {e}")
-        finally:
-            if len(driver.window_handles) > 1:
-                driver.close()
-                driver.switch_to.window(main_tab)
-            progress.update(1)
+        result = _scrape_single_horse(driver, wait, horse, main_tab)
+        if result:
+            details.append(result)
 
     driver.quit()
     return details
 
 
-def scrape_jockeys(jockeys_chunk: list[str], progress: tqdm, config: Config) -> list[dict]:
+def _scrape_single_jockey(
+    driver: webdriver.Chrome,
+    wait: WebDriverWait,
+    jockey: str,
+) -> dict | None:
+    """Helper to scrape a single jockey safely."""
+    base_url = "https://www.britishhorseracing.com/racing/participants/jockeys/"
+    try:
+        driver.get(base_url)
+        time.sleep(10)
+        inp = wait.until(
+            ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]//input')),
+        )
+        inp.clear()
+        inp.send_keys(jockey)
+        wait.until(
+            ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[2]')),
+        ).click()
+
+        wait.until(ec.presence_of_element_located((By.XPATH, '//*[@id="jockeys-list"]/div')))
+        driver.find_element(By.XPATH, '//*[@id="jockeys-list"]/div').click()
+
+        href = driver.current_url
+        logger.info(f"Scraping jockey profile: {jockey} ({href})")
+
+        info = wait.until(
+            ec.presence_of_element_located(
+                (By.XPATH, '//*[@id="jockey-single-info"]/div[2]/div[2]'),
+            ),
+        ).text
+        career = driver.find_element(
+            By.XPATH,
+            '//*[@id="jockey-single-info"]/div[2]/div[3]',
+        ).text
+    except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+        logger.error(f"Failed to scrape jockey {jockey}: {e}")
+        return None
+    else:
+        return {"name": jockey, "url": href, "jockey_info": info, "career_info": career}
+
+
+def scrape_jockeys(jockeys_chunk: list[str], config: Config) -> list[dict]:
     """Scrape detailed information for each jockey in the list."""
     driver = make_driver(config)
     wait = WebDriverWait(driver, 15)
-    base_url = "https://www.britishhorseracing.com/racing/participants/jockeys/"
     details: list[dict] = []
 
     for jockey in jockeys_chunk:
-        logger.info(f"Scraping jockey profile: {jockey}")
-        try:
-            driver.get(base_url)
-            time.sleep(10)
-            inp = wait.until(
-                ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]//input')),
-            )
-            inp.clear()
-            inp.send_keys(jockey)
-            wait.until(
-                ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[2]')),
-            ).click()
-
-            wait.until(ec.presence_of_element_located((By.XPATH, '//*[@id="jockeys-list"]/div')))
-            driver.find_element(By.XPATH, '//*[@id="jockeys-list"]/div').click()
-
-            info = wait.until(
-                ec.presence_of_element_located(
-                    (By.XPATH, '//*[@id="jockey-single-info"]/div[2]/div[2]'),
-                ),
-            ).text
-            career = driver.find_element(
-                By.XPATH,
-                '//*[@id="jockey-single-info"]/div[2]/div[3]',
-            ).text
-
-            details.append({"name": jockey, "jockey_info": info, "career_info": career})
-        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
-            logger.error(f"Failed to scrape jockey {jockey}: {e}")
-        finally:
-            progress.update(1)
+        result = _scrape_single_jockey(driver, wait, jockey)
+        if result:
+            details.append(result)
 
     driver.quit()
     return details
@@ -321,7 +346,7 @@ def scrape_jockeys(jockeys_chunk: list[str], progress: tqdm, config: Config) -> 
 def run_stage(
     name: str,
     items: list[str],
-    scrape_fn: Callable[[list[str], tqdm, Config], list[dict]],
+    scrape_fn: Callable[[list[str], Config], list[dict]],
     out_file: str,
     config: Config,
 ) -> None:
@@ -331,10 +356,8 @@ def run_stage(
     chunks = [items[i * chunk_size : (i + 1) * chunk_size] for i in range(num_workers)]
 
     results: list[dict] = []
-    with tqdm(total=len(items), desc=f"{name} Progress") as progress, ThreadPoolExecutor(
-        max_workers=num_workers,
-    ) as exe:
-        futures = [exe.submit(scrape_fn, chunk, progress, config) for chunk in chunks]
+    with ThreadPoolExecutor(max_workers=num_workers) as exe:
+        futures = [exe.submit(scrape_fn, chunk, config) for chunk in chunks]
         for fut in as_completed(futures):
             results.extend(fut.result())
 
@@ -350,7 +373,7 @@ def main() -> None:
     config = Config("config.yml")
 
     # Scrape monthly results
-    # scrape_monthly_results(config)
+    scrape_monthly_results(config)
 
     # Aggregate unique horse/jockey names
     all_results: list[dict] = []
