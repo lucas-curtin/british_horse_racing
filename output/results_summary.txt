@@ -1,2 +1,0 @@
-Calibration Log loss: 0.3338
-Brier: 0.0949
