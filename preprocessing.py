@@ -1,6 +1,8 @@
 # %%
 """EDA Script."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
@@ -250,9 +252,48 @@ race_raw = (
     ],
 )
 
-raw_cols = [c for c in race_raw.columns if c.endswith("_raw")]
 
-race_results = race_raw.drop(columns=raw_cols)
+RACE_KEYWORDS = {
+    "handicap": ["handicap"],
+    "steeple": ["steeple"],
+    "chase": ["chase"],
+    "novice": ["novice", "novices'"],
+    "hurdle": ["hurdle"],
+    "maiden": ["maiden"],
+    "national_hunt": ["nh flat", "national hunt", "bumper"],
+    "selling": ["selling", "seller"],
+}
+
+
+def classify_race_keywords(
+    name: str,
+    keywords: dict[str, list[str]],
+) -> dict[str, bool | int | None]:
+    """Return binary flags for race keywords + extracted class number."""
+    n = name.lower() if name else ""
+    flags = {flag: any(k in n for k in keys) for flag, keys in keywords.items()}
+
+    # Extract race class (1-7) if present
+    m = re.search(r"class\s*(\d)", n)
+    flags["class"] = int(m.group(1)) if m else None
+
+    return flags
+
+
+race_grouped = race_raw.assign(
+    **race_raw["race_name_raw"]
+    .apply(lambda x: classify_race_keywords(x, RACE_KEYWORDS))
+    .apply(pd.Series),
+)
+
+
+raw_cols = [c for c in race_grouped.columns if c.endswith("_raw")]
+
+race_df = race_grouped.set_index(["fixture_index", "race_index"])
+
+race_df[[*list(RACE_KEYWORDS.keys()), "race_name_raw"]].drop_duplicates().to_csv("test.csv")
+
+race_df.drop(columns=raw_cols).to_csv(OUTPUT_DIR / "race_df.csv")
 
 
 # %%
