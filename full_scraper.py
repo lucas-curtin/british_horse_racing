@@ -274,7 +274,7 @@ def _scrape_single_horse(
 def scrape_horses(horses_chunk: list[str], config: Config) -> list[dict]:
     """Scrape detailed information for each horse in the list."""
     driver = make_driver(config)
-    wait = WebDriverWait(driver, 5)
+    wait = WebDriverWait(driver, 3)
     main_tab = driver.current_window_handle
     details: list[dict] = []
 
@@ -296,7 +296,6 @@ def _scrape_single_jockey(
     base_url = "https://www.britishhorseracing.com/racing/participants/jockeys/"
     try:
         driver.get(base_url)
-        time.sleep(10)
         inp = wait.until(
             ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]//input')),
         )
@@ -331,7 +330,7 @@ def _scrape_single_jockey(
 def scrape_jockeys(jockeys_chunk: list[str], config: Config) -> list[dict]:
     """Scrape detailed information for each jockey in the list."""
     driver = make_driver(config)
-    wait = WebDriverWait(driver, 15)
+    wait = WebDriverWait(driver, 3)
     details: list[dict] = []
 
     for jockey in jockeys_chunk:

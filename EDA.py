@@ -1,5 +1,5 @@
 # %%
-"""EDA Script."""
+"""Model Script."""
 
 from pathlib import Path
 
@@ -11,20 +11,67 @@ OUTPUT_DIR = BASE_DIR / "output"
 RESULTS_DIR = OUTPUT_DIR / "results"
 
 
-race_df = pd.read_csv(OUTPUT_DIR / "race_df.csv")
-jockey_df = pd.read_csv(OUTPUT_DIR / "jockey_df.csv")
-horse_df = pd.read_csv(OUTPUT_DIR / "horse_df.csv")
+race_types = [
+    "handicap",
+    "steeple",
+    "chase",
+    "novice",
+    "hurdle",
+    "maiden",
+    "national_hunt",
+    "selling",
+]
+
+race_raw = pd.read_csv(OUTPUT_DIR / "race_df.csv")
+
+flat_df = (
+    race_raw[race_raw[race_types].any(axis=1)]
+    .loc[(~race_raw["WD"]) & (~race_raw["NR"]) & (~race_raw["DNF"])]
+    .assign(speed=lambda df: df["race_distance_m"] / df["finish_time_sec"])
+)
+
+
+flat_slim = flat_df[
+    [
+        "fixture_index",
+        "race_index",
+        "racecourse",
+        "going_stick",
+        "soil_moisture_pct",
+        # "runner_index",
+        # "position_rank",
+        "draw_number",
+        "horse_name",
+        "jockey_name",
+        "handicap_ran_off",
+        # "bha_performance_figure",
+        "current_mark_surface",
+        "current_mark",
+        "trainer_name",
+        "owner_name",
+        # "race_distance_m",
+        # "finish_time_sec",
+        # "race_date",
+        # "starting_prob",
+        # "won",
+        "weather_category",
+        # "DNF",
+        # "WD",
+        # "NR",
+        # "handicap",
+        # "steeple",
+        # "chase",
+        # "novice",
+        # "hurdle",
+        # "maiden",
+        # "national_hunt",
+        # "selling",
+        "class",
+    ]
+]
+
 
 # %%
 # ? Combining dataframes
-merged_df = race_df.merge(horse_df, on="horse_name", how="left").merge(
-    jockey_df,
-    on="jockey_name",
-    how="left",
-)
 
-merged_df["race_age"] = (merged_df["race_date"] - merged_df["foaled"]).dt.days
-
-
-merged_df.set_index("race_date").to_csv(OUTPUT_DIR / "merged_results.csv")
 # %%

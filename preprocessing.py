@@ -235,7 +235,7 @@ race_raw = (
         DNF=lambda df: df["position_rank"] == "DNF",
         WD=lambda df: df["position_rank"] == "WD",
         NR=lambda df: df["position_rank"] == "NR",
-        draw_number=lambda df: df["draw_number"].fillna(0),
+        draw_number=lambda df: df["draw_number"],
     )
 ).drop(
     columns=[
