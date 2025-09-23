@@ -289,7 +289,16 @@ race_grouped = race_raw.assign(
 
 raw_cols = [c for c in race_grouped.columns if c.endswith("_raw")]
 
-race_df = race_grouped.set_index(["fixture_index", "race_index"])
+race_df = race_grouped.assign(
+    race_id=lambda df: (
+        df["race_date"].dt.strftime("%Y%m%d")
+        + "_"
+        + df["fixture_index"].astype(str)
+        + "_"
+        + df["race_index"].astype(str)
+    ),
+).set_index("race_id")
+
 
 race_df[[*list(RACE_KEYWORDS.keys()), "race_name_raw"]].drop_duplicates().to_csv("test.csv")
 
