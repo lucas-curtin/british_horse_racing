@@ -38,6 +38,7 @@ def encode_categories(
 ) -> tuple[dict[str, np.ndarray], dict[str, dict[str, int]]]:
     """Encode categorical columns into integer indices.
 
+    Uses an explicit '__UNK__' bucket (neutral effect) for unseen categories.
     If `existing_maps` is provided (for test set), it reuses the train mappings.
     Otherwise, it creates new mappings.
     """
@@ -48,10 +49,17 @@ def encode_categories(
         series = df[col].astype("string")
 
         if existing_maps is None:
-            cats = pd.Index(series.unique())
+            cats = pd.Index(series.dropna().unique())
+            # map known categories 0..n-1, reserve last index for unknowns
             maps[col] = {cat: i for i, cat in enumerate(cats)}
+            maps[col]["__UNK__"] = len(cats)
+        else:
+            # ensure the unknown bucket exists in reused maps
+            if "__UNK__" not in maps[col]:
+                maps[col]["__UNK__"] = len(maps[col])
 
-        idx = series.map(maps[col]).fillna(-1).astype(int).to_numpy()
+        # map values; unseen -> __UNK__
+        idx = series.map(maps[col]).fillna(maps[col]["__UNK__"]).astype(int).to_numpy()
         indices[f"{col}_idx"] = idx
 
     return indices, maps
@@ -63,6 +71,12 @@ def sum_to_zero_noncentered(name: str, n: int, sigma_prior: float = 0.5) -> pm.D
     tau = pm.HalfNormal(f"sigma_{name}", sigma_prior)
     eff = (raw - pt.mean(raw)) * tau
     return pm.Deterministic(f"{name}_eff", eff)
+
+
+def pad_unknown(eff: pt.TensorVariable) -> pt.TensorVariable:
+    """Append a neutral (zero) effect as the last element for the '__UNK__' bucket."""
+    zero = pt.as_tensor_variable([0.0])
+    return pt.concatenate([eff, zero])
 
 
 # ---------------------------------------------------------------------
@@ -104,10 +118,6 @@ def prepare_data() -> tuple[pd.DataFrame, pd.DataFrame]:
         )
     ).assign(won=lambda d: d.groupby("race_id")["speed"].transform(lambda x: x == x.max()))
 
-    # Median imputation for numeric columns
-    for col in NUM_COLS:
-        flat[col] = flat[col].fillna(flat[col].median())
-
     # Split by race_id
     race_ids = sorted(flat["race_id"].unique())
     cutoff = int(len(race_ids) * 0.75)
@@ -115,6 +125,12 @@ def prepare_data() -> tuple[pd.DataFrame, pd.DataFrame]:
 
     train_df = flat[flat["race_id"].isin(train_ids)].copy()
     test_df = flat[flat["race_id"].isin(test_ids)].copy()
+
+    # Median imputation for numeric columns (fit on train, apply to both)
+    medians = train_df[NUM_COLS].median()
+    train_df[NUM_COLS] = train_df[NUM_COLS].fillna(medians)
+    test_df[NUM_COLS] = test_df[NUM_COLS].fillna(medians)
+
     return train_df, test_df
 
 
@@ -130,7 +146,6 @@ def main() -> None:
     cat_cols = [
         "horse_name",
         "jockey_name",
-        "race_id",
         "racecourse",
         "weather_category",
         "current_mark_surface",
@@ -156,12 +171,15 @@ def main() -> None:
         # Group effects
         effs = {}
         for col in cat_cols:
-            n_levels = len(maps[col])
-            effs[col] = sum_to_zero_noncentered(
+            # exclude the reserved __UNK__ bucket when creating effects
+            n_levels_known = len(maps[col]) - 1
+            eff = sum_to_zero_noncentered(
                 col,
-                n_levels,
-                sigma_prior=1.0 if col in ["horse_name", "jockey_name", "race_id"] else 0.5,
+                n_levels_known,
+                sigma_prior=1.0 if col in ["horse_name", "jockey_name"] else 0.5,
             )
+            # append neutral zero for unknown bucket
+            effs[col] = pad_unknown(eff)
 
         # Linear predictor
         mu = intercept + pt.dot(x, beta)
@@ -178,7 +196,7 @@ def main() -> None:
             draws=1000,
             tune=1000,
             chains=4,
-            cores=1,
+            cores=4,
             target_accept=0.9,
             random_seed=451,
             return_inferencedata=True,

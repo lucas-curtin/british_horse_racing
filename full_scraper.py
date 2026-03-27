@@ -9,7 +9,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable
 
 import pandas as pd
-from horse_racing.config import Config
 from loguru import logger
 from selenium import webdriver
 from selenium.common.exceptions import (
@@ -23,6 +22,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 
+from horse_racing.config import Config
+
 
 # ————— WebDriver factory —————
 def make_driver(config: Config) -> webdriver.Chrome:
@@ -30,7 +31,7 @@ def make_driver(config: Config) -> webdriver.Chrome:
     options = Options()
     options.binary_location = str(config.chrome_path)
     options.add_argument("--start-maximized")
-    options.add_argument("--headless")
+    # options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
