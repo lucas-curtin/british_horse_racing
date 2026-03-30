@@ -1,8 +1,8 @@
-"""Config Template."""
+"""Configuration loader for the horse racing scraper."""
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import yaml
@@ -11,8 +11,8 @@ import yaml
 class Config:
     """Configuration loader for the horse racing scraper."""
 
-    def __init__(self, config_file: str | Path):
-        """Config for scraping help."""
+    def __init__(self, config_file: str | Path) -> None:
+        """Load scraper configuration from a YAML file."""
         self._config_file = Path(config_file)
 
         with self._config_file.open("r", encoding="utf-8") as f:
@@ -25,6 +25,8 @@ class Config:
         self.output_dir: Path = self._ensure_path(self._raw["output_dir"])
         self.results_dir: Path = self.output_dir / "results"
         self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.missed_dir: Path = self.output_dir / "missed"
+        self.missed_dir.mkdir(parents=True, exist_ok=True)
 
         # Parse dates
         self.start_date: date = self._parse_date(self._raw["dates"]["start"])
@@ -45,4 +47,4 @@ class Config:
         """Parse YYYY-MM-DD into datetime.date."""
         if isinstance(d, date):
             return d
-        return datetime.strptime(d, "%Y-%m-%d").date()
+        return date.fromisoformat(d)

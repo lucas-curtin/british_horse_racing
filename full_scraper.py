@@ -1,12 +1,13 @@
-"""Fixture, Horse, Jockey Scraper."""
+"""Fixture, Horse, Jockey scraper."""
 
 from __future__ import annotations
 
-import contextlib
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import pandas as pd
 from loguru import logger
@@ -24,20 +25,64 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from horse_racing.config import Config
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import date
+    from pathlib import Path
+
+_logged_fallbacks: set[str] = set()
+
+
+@dataclass(frozen=True)
+class FixtureRequest:
+    """Fixture request metadata."""
+
+    fixture_url: str
+    fixture_idx: int
+    year: int
+
+
+@dataclass(frozen=True)
+class DetailStageSpec:
+    """Configuration for a horse/jockey detail scrape stage."""
+
+    stage_name: str
+    scrape_fn: Callable[[list[str], Config], tuple[list[dict], list[str]]]
+    out_file: str
+    missed_file: Path
+
 
 # ————— WebDriver factory —————
 def make_driver(config: Config) -> webdriver.Chrome:
-    """Create and configure a headless Chrome WebDriver instance."""
+    """Create and configure a Chrome WebDriver instance."""
     options = Options()
-    options.binary_location = str(config.chrome_path)
+    if config.chrome_path.exists():
+        options.binary_location = str(config.chrome_path)
+    elif "chrome" not in _logged_fallbacks:
+        logger.info(
+            "Chrome binary not found at {}. Falling back to Selenium's default Chrome discovery.",
+            config.chrome_path,
+        )
+        _logged_fallbacks.add("chrome")
     options.add_argument("--start-maximized")
-    # options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_experimental_option("excludeSwitches", ["enable-logging"])
-    service = Service(executable_path=str(config.chromedriver_path), log_path="NUL")
-    return webdriver.Chrome(service=service, options=options)
+    if config.chromedriver_path.exists():
+        service = Service(executable_path=str(config.chromedriver_path), log_path="NUL")
+    elif "chromedriver" not in _logged_fallbacks:
+        logger.info(
+            "Chromedriver not found at {}. Falling back to Selenium Manager.",
+            config.chromedriver_path,
+        )
+        _logged_fallbacks.add("chromedriver")
+        service = Service()
+    else:
+        service = Service()
+    driver = webdriver.Chrome(service=service, options=options)
+    driver.set_page_load_timeout(20)
+    return driver
 
 
 # ————— Utility —————
@@ -53,16 +98,131 @@ def safe_text(
         return "nan"
 
 
+def parse_fixture_date(date_text: str, year: int) -> date | None:
+    """Parse fixture header date text into a concrete date."""
+    parsed = pd.to_datetime(f"{date_text} {year}", dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def parse_listing_date(item_text: str, year: int) -> date | None:
+    """Best-effort parse of a fixture date from the monthly results list item text."""
+    patterns = [
+        r"\b\d{1,2}\s+[A-Za-z]{3,9}\b",
+        r"\b[A-Za-z]{3,9}\s+\d{1,2}\b",
+        r"\b\d{1,2}/\d{1,2}\b",
+        r"\b\d{1,2}-\d{1,2}\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, item_text)
+        if not match:
+            continue
+        parsed = pd.to_datetime(f"{match.group(0)} {year}", dayfirst=True, errors="coerce")
+        if not pd.isna(parsed):
+            return parsed.date()
+    parsed = pd.to_datetime(f"{item_text} {year}", dayfirst=True, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def write_json(path: Path, payload: object) -> None:
+    """Write JSON payload with stable formatting."""
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def log_stage_summary(stage: str, completed: int, missed: int) -> None:
+    """Log a clear summary for a pipeline stage."""
+    logger.info("{} stage completed {} records.", stage, completed)
+    if missed:
+        logger.warning("{} stage missed {} records. See output/missed/.", stage, missed)
+    else:
+        logger.info("{} stage missed 0 records.", stage)
+
+
+def click_expand_button(
+    driver: webdriver.Chrome,
+    button: webdriver.remote.webelement.WebElement,
+) -> None:
+    """Try to expand a race card row and log failures explicitly."""
+    driver.execute_script("arguments[0].scrollIntoView(true);", button)
+    time.sleep(0.1)
+    try:
+        button.click()
+    except WebDriverException as exc:
+        logger.debug("Could not expand fixture row: {}", exc)
+    time.sleep(0.1)
+
+
+def extract_races(driver: webdriver.Chrome) -> list[dict]:
+    """Expand and extract populated race cards from the current fixture page."""
+    for btn in driver.find_elements(
+        By.XPATH,
+        "//*[@id='racecard-ui']/li/div[1]/div[5]/span",
+    ):
+        click_expand_button(driver, btn)
+
+    raw_cards = driver.find_elements(By.CSS_SELECTOR, "#racecard-ui > li")
+    cards = [
+        card
+        for card in raw_cards
+        if card.find_elements(
+            By.CSS_SELECTOR,
+            "div.table-cell.w10.time span.inline-field-value",
+        )
+    ]
+    races: list[dict] = []
+    for i, card in enumerate(cards, start=1):
+        race_time = card.find_element(By.CSS_SELECTOR, ".table-cell.w10.time").text
+        race_name = card.find_element(By.CSS_SELECTOR, ".table-cell.w40.name").text
+        race_dist = card.find_element(By.CSS_SELECTOR, ".table-cell.w20.race-distance").text
+        winner = card.find_element(By.CSS_SELECTOR, ".table-cell.w25.last-col.winner").text
+
+        runners: list[dict] = []
+        for j, entry in enumerate(card.find_elements(By.XPATH, "./div[2]//ul/li"), start=1):
+            cells = entry.find_elements(By.CSS_SELECTOR, "div.table-cell")
+            cols = ["position", "horse_jockey", "trainer_owner", "distance_time", "sp"]
+            data = {"runner_index": j}
+            for idx, cell in enumerate(cells):
+                key = cols[idx] if idx < len(cols) else f"col_{idx}"
+                data[key] = cell.text.strip() or "nan"
+            runners.append(data)
+
+        races.append(
+            {
+                "race_index": i,
+                "time": race_time,
+                "name": race_name,
+                "distance": race_dist,
+                "winner_info": winner,
+                "runners": runners,
+            },
+        )
+    return races
+
+
 # ————— Scraping helpers —————
-def collect_fixture_links(driver: webdriver.Chrome) -> list[str]:
-    """Scroll results list to collect all fixture URLs."""
-    results_list = WebDriverWait(driver, 10).until(
-        ec.presence_of_element_located((By.ID, "results-list")),
-    )
+def collect_fixture_links(driver: webdriver.Chrome, config: Config, year: int) -> list[str]:
+    """Scroll results list to collect fixture URLs within the configured date range."""
     seen_hrefs: set[str] = set()
     while True:
-        all_items = results_list.find_elements(By.TAG_NAME, "li")
-        fixture_items = [li for li in all_items if li.find_elements(By.TAG_NAME, "a")]
+        results_list = WebDriverWait(driver, 10).until(
+            ec.presence_of_element_located((By.ID, "results-list")),
+        )
+        all_items = results_list.find_elements(By.TAG_NAME, "li") or []
+        fixture_items = []
+        for li in all_items:
+            links = li.find_elements(By.TAG_NAME, "a")
+            if not links:
+                continue
+            item_date = parse_listing_date(li.text, year)
+            if item_date and not (config.start_date <= item_date <= config.end_date):
+                continue
+            fixture_items.append(li)
+        if not fixture_items:
+            break
         hrefs = [li.find_element(By.TAG_NAME, "a").get_attribute("href") for li in fixture_items]
 
         new_hrefs = [href for href in hrefs if href not in seen_hrefs]
@@ -78,140 +238,185 @@ def collect_fixture_links(driver: webdriver.Chrome) -> list[str]:
         )
         time.sleep(2)
 
-    return list(seen_hrefs)
+    return sorted(seen_hrefs)
 
 
 def scrape_fixture(
     driver: webdriver.Chrome,
-    fixture_url: str,
-    fixture_idx: int,
-    year: int,
+    request: FixtureRequest,
     main_tab: str,
-) -> dict | None:
+    config: Config,
+) -> tuple[dict | None, bool]:
     """Scrape a single fixture page into structured data."""
-    logger.info(f"Fixture {fixture_idx}: opening {fixture_url}")
-    driver.execute_script("window.open('');")
-    driver.switch_to.window(driver.window_handles[-1])
-    driver.get(fixture_url)
-
-    wait = WebDriverWait(driver, 15)
+    logger.info("Fixture {}: opening {}", request.fixture_idx, request.fixture_url)
     try:
+        driver.execute_script("window.open('');")
+        driver.switch_to.window(driver.window_handles[-1])
+        driver.get(request.fixture_url)
+
+        wait = WebDriverWait(driver, 2)
         wait.until(ec.presence_of_element_located((By.ID, "racecard-ui")))
-    except TimeoutException:
-        logger.warning(f"No race data for fixture {fixture_url}, skipping.")
-        driver.close()
-        driver.switch_to.window(main_tab)
-        return None
 
-    try:
         racecourse_elem = wait.until(
             ec.presence_of_element_located(
                 (By.XPATH, '//*[@id="fixture-header-ui"]/h2/div[1]'),
             ),
         )
         racecourse = racecourse_elem.text
-    except TimeoutException:
-        racecourse = "nan"
+        going_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[1]')
+        weather_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[2]')
+        other_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[3]')
+        races = extract_races(driver)
+        if not races:
+            logger.warning("No populated race cards for fixture {}, skipping.", request.fixture_url)
+            return None, True
 
-    going_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[1]')
-    weather_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[2]')
-    other_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[3]')
-
-    for btn in driver.find_elements(
-        By.XPATH,
-        "//*[@id='racecard-ui']/li/div[1]/div[5]/span",
-    ):
-        driver.execute_script("arguments[0].scrollIntoView(true);", btn)
-        time.sleep(0.1)
-        with contextlib.suppress(WebDriverException):
-            btn.click()
-        time.sleep(0.1)
-
-    raw_cards = driver.find_elements(By.CSS_SELECTOR, "#racecard-ui > li")
-    cards = [
-        c
-        for c in raw_cards
-        if c.find_elements(
-            By.CSS_SELECTOR,
-            "div.table-cell.w10.time span.inline-field-value",
+        fixture_data = {
+            "fixture_index": request.fixture_idx,
+            "fixture_url": request.fixture_url,
+            "date": safe_text(driver, '//*[@id="fixture-header-ui"]/h2/div[2]/span[1]'),
+            "year": request.year,
+            "racecourse": racecourse,
+            "going": going_text,
+            "weather": weather_text,
+            "other_text": other_text,
+            "races": races,
+        }
+        fixture_date = parse_fixture_date(fixture_data["date"], request.year)
+        if fixture_date is None:
+            logger.warning("Could not parse fixture date for {}, skipping.", request.fixture_url)
+            return None, False
+        if not (config.start_date <= fixture_date <= config.end_date):
+            logger.info(
+                "Skipping fixture {} because {} is outside configured range {} to {}.",
+                request.fixture_url,
+                fixture_date,
+                config.start_date,
+                config.end_date,
+            )
+            return None, False
+    except (TimeoutException, NoSuchElementException) as exc:
+        logger.warning(
+            "Skipping fixture {} for now due to missing page data: {}",
+            request.fixture_url,
+            exc,
         )
-    ]
+        return None, True
+    except WebDriverException as exc:
+        logger.warning("Skipping fixture {} due to scrape error: {}", request.fixture_url, exc)
+        return None, False
+    else:
+        return fixture_data, False
+    finally:
+        if len(driver.window_handles) > 1:
+            driver.close()
+            driver.switch_to.window(main_tab)
 
-    races: list[dict] = []
-    for i, card in enumerate(cards, start=1):
-        race_time = card.find_element(By.CSS_SELECTOR, ".table-cell.w10.time").text
-        race_name = card.find_element(By.CSS_SELECTOR, ".table-cell.w40.name").text
-        race_dist = card.find_element(By.CSS_SELECTOR, ".table-cell.w20.race-distance").text
-        winner = card.find_element(By.CSS_SELECTOR, ".table-cell.w25.last-col.winner").text
 
-        runners: list[dict] = []
-        for j, entry in enumerate(card.find_elements(By.XPATH, "./div[2]//ul/li"), start=1):
-            cells = entry.find_elements(By.CSS_SELECTOR, "div.table-cell")
-            cols = ["position", "horse_jockey", "trainer_owner", "distance_time", "sp"]
-            data = {"runner_index": j}
-            for idx, cell in enumerate(cells):
-                key = cols[idx] if idx < len(cols) else f"col_{idx}"
-                data[key] = cell.text.strip() if cell.text.strip() else "nan"
-            runners.append(data)
+def process_month_results(
+    driver: webdriver.Chrome,
+    config: Config,
+    year: int,
+    month: int,
+) -> tuple[list[dict], list[dict]]:
+    """Scrape a single monthly results page and retry transient fixture misses once."""
+    ym = f"{year}_{month:02d}"
+    logger.info("Processing month: {}", ym)
 
-        races.append(
-            {
-                "race_index": i,
-                "time": race_time,
-                "name": race_name,
-                "distance": race_dist,
-                "winner_info": winner,
-                "runners": runners,
-            },
+    url = f"https://www.britishhorseracing.com/racing/results/#!?year={year}&month={month}"
+    driver.get(url)
+    driver.refresh()
+    time.sleep(1)
+
+    fixtures = collect_fixture_links(driver, config, year)
+    all_fixtures_data: list[dict] = []
+    retry_fixtures: list[FixtureRequest] = []
+    main_tab = driver.current_window_handle
+
+    for fixture_idx, fixture_url in enumerate(fixtures, start=1):
+        request = FixtureRequest(fixture_url, fixture_idx, year)
+        fixture_data, should_retry = scrape_fixture(driver, request, main_tab, config)
+        if fixture_data:
+            all_fixtures_data.append(fixture_data)
+        elif should_retry:
+            retry_fixtures.append(request)
+
+    if retry_fixtures:
+        logger.info(
+            "Retrying {} fixture pages that were missing data on first pass.",
+            len(retry_fixtures),
         )
 
-    fixture_data = {
-        "fixture_index": fixture_idx,
-        "fixture_url": fixture_url,
-        "date": safe_text(driver, '//*[@id="fixture-header-ui"]/h2/div[2]/span[1]'),
-        "year": year,
-        "racecourse": racecourse,
-        "going": going_text,
-        "weather": weather_text,
-        "other_text": other_text,
-        "races": races,
-    }
+    unresolved_retry_fixtures: list[dict] = []
+    for request in retry_fixtures:
+        fixture_data, _ = scrape_fixture(driver, request, main_tab, config)
+        if fixture_data:
+            all_fixtures_data.append(fixture_data)
+        else:
+            unresolved_retry_fixtures.append(
+                {
+                    "month": ym,
+                    "fixture_index": request.fixture_idx,
+                    "fixture_url": request.fixture_url,
+                },
+            )
 
-    driver.close()
-    driver.switch_to.window(main_tab)
-    return fixture_data
+    out_file = config.results_dir / f"{ym}.json"
+    write_json(out_file, all_fixtures_data)
+    logger.info("Wrote {} fixtures to {}", len(all_fixtures_data), out_file)
+    return all_fixtures_data, unresolved_retry_fixtures
 
 
-def scrape_monthly_results(config: Config) -> None:
+def retry_missed_fixtures(
+    driver: webdriver.Chrome,
+    config: Config,
+    missed_fixtures: list[dict],
+) -> list[dict]:
+    """Retry any fixture pages still missed after the monthly pass."""
+    if not missed_fixtures:
+        write_json(config.missed_dir / "fixtures.json", [])
+        return []
+
+    write_json(config.missed_dir / "fixtures.json", missed_fixtures)
+    logger.info(
+        "Retrying {} missed fixtures at end of full results scrape.",
+        len(missed_fixtures),
+    )
+    final_missed: list[dict] = []
+    for missed in missed_fixtures:
+        request = FixtureRequest(
+            missed["fixture_url"],
+            missed["fixture_index"],
+            int(missed["month"].split("_")[0]),
+        )
+        main_tab = driver.current_window_handle
+        fixture_data, _ = scrape_fixture(driver, request, main_tab, config)
+        if not fixture_data:
+            final_missed.append(missed)
+
+    write_json(config.missed_dir / "fixtures.json", final_missed)
+    return final_missed
+
+
+def scrape_monthly_results(config: Config) -> tuple[list[dict], list[dict]]:
     """Scrape BHA race results month by month and save as JSON."""
     driver = make_driver(config)
-    periods = pd.date_range(start=config.start_date, end=config.end_date, freq="MS")
+    all_results: list[dict] = []
+    missed_fixtures: list[dict] = []
+    month_start = pd.Timestamp(config.start_date).replace(day=1)
+    month_end = pd.Timestamp(config.end_date).replace(day=1)
+    periods = pd.date_range(start=month_start, end=month_end, freq="MS")
 
     for dt in periods:
-        year, month = dt.year, dt.month
-        ym = f"{year}_{month:02d}"
-        logger.info(f"Processing month: {ym}")
+        month_results, month_missed = process_month_results(driver, config, dt.year, dt.month)
+        all_results.extend(month_results)
+        missed_fixtures.extend(month_missed)
 
-        url = f"https://www.britishhorseracing.com/racing/results/#!?year={year}&month={month}"
-        driver.get(url)
-        driver.refresh()
-        time.sleep(1)
-
-        fixtures = collect_fixture_links(driver)
-        all_fixtures_data: list[dict] = []
-        main_tab = driver.current_window_handle
-
-        for fixture_idx, fixture_url in enumerate(fixtures, start=1):
-            fixture_data = scrape_fixture(driver, fixture_url, fixture_idx, year, main_tab)
-            if fixture_data:
-                all_fixtures_data.append(fixture_data)
-
-        out_file = config.results_dir / f"{ym}.json"
-        with out_file.open("w", encoding="utf-8") as f:
-            json.dump(all_fixtures_data, f, indent=2)
-        logger.info(f"Wrote {len(all_fixtures_data)} fixtures to {out_file}")
+    final_missed = retry_missed_fixtures(driver, config, missed_fixtures)
 
     driver.quit()
+    log_stage_summary("Fixture", len(all_results), len(final_missed))
+    return all_results, final_missed
 
 
 # ————— Part 2: Scrape horse and jockey details —————
@@ -219,17 +424,18 @@ def _scrape_single_horse(
     driver: webdriver.Chrome,
     wait: WebDriverWait,
     horse: str,
-    main_tab: str,
 ) -> dict | None:
     """Helper to scrape a single horse safely."""
     base_url = "https://www.britishhorseracing.com/racing/horses/"
     try:
         driver.get(base_url)
+        time.sleep(1)
         inp = wait.until(
             ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]/div[2]/input')),
         )
         inp.clear()
         inp.send_keys(horse)
+        time.sleep(1)
         wait.until(
             ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[2]')),
         ).click()
@@ -238,8 +444,7 @@ def _scrape_single_horse(
             ec.element_to_be_clickable((By.XPATH, '//*[@id="horses-list"]/div/a')),
         )
         href = link.get_attribute("href")
-        driver.execute_script("window.open(arguments[0]);", href)
-        driver.switch_to.window(driver.window_handles[-1])
+        driver.get(href)
         logger.info(f"Scraping horse profile: {horse} ({href})")
 
         general = wait.until(
@@ -266,26 +471,24 @@ def _scrape_single_horse(
         return None
     else:
         return data
-    finally:
-        if len(driver.window_handles) > 1:
-            driver.close()
-            driver.switch_to.window(main_tab)
 
 
-def scrape_horses(horses_chunk: list[str], config: Config) -> list[dict]:
+def scrape_horses(horses_chunk: list[str], config: Config) -> tuple[list[dict], list[str]]:
     """Scrape detailed information for each horse in the list."""
     driver = make_driver(config)
     wait = WebDriverWait(driver, 3)
-    main_tab = driver.current_window_handle
     details: list[dict] = []
+    missed: list[str] = []
 
     for horse in horses_chunk:
-        result = _scrape_single_horse(driver, wait, horse, main_tab)
+        result = _scrape_single_horse(driver, wait, horse)
         if result:
             details.append(result)
+        else:
+            missed.append(horse)
 
     driver.quit()
-    return details
+    return details, missed
 
 
 def _scrape_single_jockey(
@@ -297,11 +500,13 @@ def _scrape_single_jockey(
     base_url = "https://www.britishhorseracing.com/racing/participants/jockeys/"
     try:
         driver.get(base_url)
+        time.sleep(1)
         inp = wait.until(
             ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[1]//input')),
         )
         inp.clear()
         inp.send_keys(jockey)
+        time.sleep(1)
         wait.until(
             ec.element_to_be_clickable((By.XPATH, '//*[@id="searchform"]/div[2]')),
         ).click()
@@ -328,59 +533,54 @@ def _scrape_single_jockey(
         return {"name": jockey, "url": href, "jockey_info": info, "career_info": career}
 
 
-def scrape_jockeys(jockeys_chunk: list[str], config: Config) -> list[dict]:
+def scrape_jockeys(jockeys_chunk: list[str], config: Config) -> tuple[list[dict], list[str]]:
     """Scrape detailed information for each jockey in the list."""
     driver = make_driver(config)
     wait = WebDriverWait(driver, 3)
     details: list[dict] = []
+    missed: list[str] = []
 
     for jockey in jockeys_chunk:
         result = _scrape_single_jockey(driver, wait, jockey)
         if result:
             details.append(result)
+        else:
+            missed.append(jockey)
 
     driver.quit()
-    return details
+    return details, missed
 
 
 def run_stage(
     name: str,
     items: list[str],
-    scrape_fn: Callable[[list[str], Config], list[dict]],
-    out_file: str,
+    scrape_fn: Callable[[list[str], Config], tuple[list[dict], list[str]]],
+    out_file: str | None,
     config: Config,
-) -> None:
+) -> tuple[list[dict], list[str]]:
     """Generic runner to scrape details in parallel and save to JSON."""
     num_workers = config.num_workers
     chunk_size = (len(items) + num_workers - 1) // num_workers
     chunks = [items[i * chunk_size : (i + 1) * chunk_size] for i in range(num_workers)]
 
     results: list[dict] = []
+    missed: list[str] = []
     with ThreadPoolExecutor(max_workers=num_workers) as exe:
         futures = [exe.submit(scrape_fn, chunk, config) for chunk in chunks]
         for fut in as_completed(futures):
-            results.extend(fut.result())
+            chunk_results, chunk_missed = fut.result()
+            results.extend(chunk_results)
+            missed.extend(chunk_missed)
 
-    path = config.output_dir / out_file
-    with path.open("w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=4)
-    logger.success(f"Wrote {len(results)} {name.lower()} details to {path}")
+    if out_file is not None:
+        path = config.output_dir / out_file
+        write_json(path, results)
+        logger.success(f"Wrote {len(results)} {name.lower()} details to {path}")
+    return results, sorted(set(missed))
 
 
-# ————— Main runner —————
-def main() -> None:
-    """Execute monthly scraping, aggregate runner names, then scrape horse and jockey details."""
-    config = Config("config.yml")
-
-    # Scrape monthly results
-    scrape_monthly_results(config)
-
-    # Aggregate unique horse/jockey names
-    all_results: list[dict] = []
-    for file in config.results_dir.glob("*.json"):
-        with file.open("r", encoding="utf-8") as f:
-            all_results.extend(json.load(f))
-
+def collect_runner_names(all_results: list[dict]) -> tuple[list[str], list[str]]:
+    """Collect unique horse and jockey names from scraped fixture results."""
     horse_list: list[str] = []
     jockey_list: list[str] = []
 
@@ -398,11 +598,81 @@ def main() -> None:
                 if len(parts) > 1 and parts[1] != "Non Runner":
                     jockey_list.append(parts[1])
 
-    horse_names = sorted(set(horse_list))
-    jockey_names = sorted(set(jockey_list))
+    return sorted(set(horse_list)), sorted(set(jockey_list))
 
-    run_stage("Jockey", jockey_names, scrape_jockeys, "jockey_details.json", config)
-    run_stage("Horse", horse_names, scrape_horses, "horse_details.json", config)
+
+def run_detail_stage(
+    spec: DetailStageSpec,
+    names: list[str],
+    config: Config,
+) -> None:
+    """Run a detail stage, write missed bins, and retry unresolved names once."""
+    if not names:
+        logger.warning(
+            "No {} names found in scraped results; skipping detail stage.",
+            spec.stage_name.lower(),
+        )
+        write_json(spec.missed_file, [])
+        return
+
+    results, missed_items = run_stage(spec.stage_name, names, spec.scrape_fn, spec.out_file, config)
+    write_json(spec.missed_file, missed_items)
+    if not missed_items:
+        log_stage_summary(spec.stage_name, len(results), 0)
+        return
+
+    logger.info(
+        "Retrying {} missed {}s at end of full scrape.",
+        len(missed_items),
+        spec.stage_name.lower(),
+    )
+    retry_results, retry_missed = run_stage(
+        spec.stage_name,
+        missed_items,
+        spec.scrape_fn,
+        None,
+        config,
+    )
+    merged = {entry["name"]: entry for entry in results}
+    merged.update({entry["name"]: entry for entry in retry_results})
+    write_json(config.output_dir / spec.out_file, list(merged.values()))
+    write_json(spec.missed_file, retry_missed)
+    log_stage_summary(spec.stage_name, len(merged), len(retry_missed))
+
+
+# ————— Main runner —————
+def main() -> None:
+    """Execute monthly scraping, aggregate runner names, then scrape horse and jockey details."""
+    config = Config("config.yml")
+    all_results, _ = scrape_monthly_results(config)
+
+    if not all_results:
+        logger.warning(
+            "No fixtures were scraped for the configured date range; skipping detail stages.",
+        )
+        return
+
+    horse_names, jockey_names = collect_runner_names(all_results)
+    run_detail_stage(
+        DetailStageSpec(
+            stage_name="Jockey",
+            scrape_fn=scrape_jockeys,
+            out_file="jockey_details.json",
+            missed_file=config.missed_dir / "jockeys.json",
+        ),
+        jockey_names,
+        config,
+    )
+    run_detail_stage(
+        DetailStageSpec(
+            stage_name="Horse",
+            scrape_fn=scrape_horses,
+            out_file="horse_details.json",
+            missed_file=config.missed_dir / "horses.json",
+        ),
+        horse_names,
+        config,
+    )
 
 
 if __name__ == "__main__":

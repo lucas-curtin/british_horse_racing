@@ -2,16 +2,19 @@
 base_dir: .
 
 # Paths to Chrome and Chromedriver
-chrome_path: "chrome/chrome-win64/chrome-win64/chrome.exe" # chrome-mac-x64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing
-chromedriver_path:  "chromedriver/chromedriver-win64/chromedriver-win64/chromedriver.exe" # chromedriver-mac-x64/chromedriver
+# On macOS, the scraper will fall back to the system Chrome install and Selenium
+# Manager if these local paths do not exist.
+chrome_path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+chromedriver_path: "chromedriver-mac-x64/chromedriver"
 
 # Output directories
 output_dir: output
 
-# Date range (inclusive start, exclusive end)
+# Date range (inclusive start and inclusive end)
+# For a single-day run, set start and end to the same date.
 dates:
-  start: "2025-07-01"
-  end: "2025-08-01"
+  start: "2026-03-27"
+  end: "2026-03-27"
 
 # Parallel scraping settings
-num_workers: 8
+num_workers: 1

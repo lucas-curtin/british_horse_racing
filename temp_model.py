@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import arviz as az
@@ -18,7 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 MODEL_DIR = OUTPUT_DIR / "model"
 
-NUM_COLS = [
+BASE_NUM_COLS = [
     "going_stick",
     "soil_moisture_pct",
     "draw_number",
@@ -26,13 +27,36 @@ NUM_COLS = [
     "current_mark",
 ]
 
+EMPTY_SPLIT_ERROR = (
+    "Train/test split is empty. Widen the scrape date range so the model has enough races."
+)
+NO_NUMERIC_PREDICTORS_ERROR = (
+    "No usable numeric predictors available after filtering missing columns."
+)
+NAN_PREDICTORS_ERROR = "Numeric predictors still contain NaNs after imputation."
+ZERO_VARIANCE_ERROR = (
+    "Training target has zero or undefined variance; widen the scrape date range."
+)
+
+
+@dataclass(frozen=True)
+class CategoryData:
+    """Categorical training encodings used by the hierarchical model."""
+
+    horses: pd.Categorical
+    jockeys: pd.Categorical
+    courses: pd.Categorical
+    weathers: pd.Categorical
+    surfs: pd.Categorical
+    classes: pd.Categorical
+
 
 # ---------------------------------------------------------------------
 # Data preparation
 # ---------------------------------------------------------------------
 
 
-def prepare_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+def prepare_data() -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
     """Load, clean and split races into training and test sets."""
     race_raw = pd.read_csv(OUTPUT_DIR / "race_df.csv")
 
@@ -81,7 +105,32 @@ def prepare_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     train_ids, test_ids = race_ids[:cutoff], race_ids[cutoff:]
     train_df = flat[flat["race_id"].isin(train_ids)].copy()
     test_df = flat[flat["race_id"].isin(test_ids)].copy()
-    return train_df, test_df
+
+    if train_df.empty or test_df.empty:
+        msg = EMPTY_SPLIT_ERROR
+        raise ValueError(msg)
+
+    usable_num_cols: list[str] = []
+    for col in BASE_NUM_COLS:
+        train_non_null = train_df[col].notna().sum()
+        if train_non_null == 0:
+            logger.warning("Dropping numeric feature '{}' because it has no training data.", col)
+            continue
+        usable_num_cols.append(col)
+
+    if not usable_num_cols:
+        msg = NO_NUMERIC_PREDICTORS_ERROR
+        raise ValueError(msg)
+
+    medians = train_df[usable_num_cols].median().fillna(0.0)
+    train_df[usable_num_cols] = train_df[usable_num_cols].fillna(medians)
+    test_df[usable_num_cols] = test_df[usable_num_cols].fillna(medians)
+
+    if train_df[usable_num_cols].isna().any().any() or test_df[usable_num_cols].isna().any().any():
+        msg = NAN_PREDICTORS_ERROR
+        raise ValueError(msg)
+
+    return train_df, test_df, usable_num_cols
 
 
 # ---------------------------------------------------------------------
@@ -110,20 +159,15 @@ def safe_codes(series: pd.Series, cats: pd.Index) -> np.ndarray:
 def fit_model(
     x_train: np.ndarray,
     y_train_z: np.ndarray,
-    horses: pd.Categorical,
-    jockeys: pd.Categorical,
-    courses: pd.Categorical,
-    weathers: pd.Categorical,
-    surfs: pd.Categorical,
-    classes: pd.Categorical,
+    categories: CategoryData,
 ) -> tuple[pm.Model, az.InferenceData]:
     """Build and fit the Bayesian model."""
-    horse_idx = horses.codes
-    jock_idx = jockeys.codes
-    course_idx = courses.codes
-    weather_idx = weathers.codes
-    surf_idx = surfs.codes
-    class_idx = classes.codes
+    horse_idx = categories.horses.codes
+    jock_idx = categories.jockeys.codes
+    course_idx = categories.courses.codes
+    weather_idx = categories.weathers.codes
+    surf_idx = categories.surfs.codes
+    class_idx = categories.classes.codes
 
     with pm.Model() as model:
         # Data containers
@@ -143,12 +187,12 @@ def fit_model(
         mu = (
             intercept
             + pt.dot(x, beta)
-            + effect("horse", horses.categories.size, sigma_scale=1.0)[horse_d]
-            + effect("jock", jockeys.categories.size, sigma_scale=1.0)[jock_d]
-            + effect("course", courses.categories.size)[course_d]
-            + effect("weather", weathers.categories.size)[weather_d]
-            + effect("surf", surfs.categories.size)[surf_d]
-            + effect("class", classes.categories.size)[class_d]
+            + effect("horse", categories.horses.categories.size, sigma_scale=1.0)[horse_d]
+            + effect("jock", categories.jockeys.categories.size, sigma_scale=1.0)[jock_d]
+            + effect("course", categories.courses.categories.size)[course_d]
+            + effect("weather", categories.weathers.categories.size)[weather_d]
+            + effect("surf", categories.surfs.categories.size)[surf_d]
+            + effect("class", categories.classes.categories.size)[class_d]
         )
 
         sigma = pm.HalfNormal("sigma", 1.0)
@@ -233,40 +277,55 @@ def evaluate_predictions(test_df: pd.DataFrame, preds: np.ndarray) -> None:
 
 def main() -> None:
     """Train the model, generate predictions and evaluate performance."""
-    train_df, test_df = prepare_data()
+    train_df, test_df, num_cols = prepare_data()
+    logger.info("Using numeric predictors: {}", num_cols)
 
     # Standardise continuous predictors
-    scaler_x = StandardScaler().fit(train_df[NUM_COLS])
-    x_train = scaler_x.transform(train_df[NUM_COLS])
-    x_test = scaler_x.transform(test_df[NUM_COLS])
+    scaler_x = StandardScaler().fit(train_df[num_cols])
+    x_train = scaler_x.transform(train_df[num_cols])
+    x_test = scaler_x.transform(test_df[num_cols])
 
     # Standardise target
     y_train = train_df["log_speed"].to_numpy()
     y_mean, y_std = y_train.mean(), y_train.std(ddof=0)
+    if np.isnan(y_std) or y_std == 0:
+        msg = ZERO_VARIANCE_ERROR
+        raise ValueError(msg)
     y_train_z = (y_train - y_mean) / y_std
 
     # Encode categories (train set)
-    horses = pd.Categorical(train_df["horse_name"])
-    jockeys = pd.Categorical(train_df["jockey_name"])
-    courses = pd.Categorical(train_df["racecourse"])
-    weathers = pd.Categorical(train_df["weather_category"])
-    surfs = pd.Categorical(train_df["current_mark_surface"])
-    classes = pd.Categorical(train_df["class"].astype(str))
+    categories = CategoryData(
+        horses=pd.Categorical(train_df["horse_name"]),
+        jockeys=pd.Categorical(train_df["jockey_name"]),
+        courses=pd.Categorical(train_df["racecourse"]),
+        weathers=pd.Categorical(train_df["weather_category"]),
+        surfs=pd.Categorical(train_df["current_mark_surface"]),
+        classes=pd.Categorical(train_df["class"].astype(str)),
+    )
 
     # Fit model
-    model, idata = fit_model(x_train, y_train_z, horses, jockeys, courses, weathers, surfs, classes)
+    model, idata = fit_model(x_train, y_train_z, categories)
 
     # Predict on test set
     with model:
         pm.set_data(
             {
                 "x": x_test,
-                "horse_idx": safe_codes(test_df["horse_name"], horses.categories),
-                "jock_idx": safe_codes(test_df["jockey_name"], jockeys.categories),
-                "course_idx": safe_codes(test_df["racecourse"], courses.categories),
-                "weather_idx": safe_codes(test_df["weather_category"], weathers.categories),
-                "surf_idx": safe_codes(test_df["current_mark_surface"], surfs.categories),
-                "class_idx": safe_codes(test_df["class"].astype(str), classes.categories),
+                "horse_idx": safe_codes(test_df["horse_name"], categories.horses.categories),
+                "jock_idx": safe_codes(test_df["jockey_name"], categories.jockeys.categories),
+                "course_idx": safe_codes(test_df["racecourse"], categories.courses.categories),
+                "weather_idx": safe_codes(
+                    test_df["weather_category"],
+                    categories.weathers.categories,
+                ),
+                "surf_idx": safe_codes(
+                    test_df["current_mark_surface"],
+                    categories.surfs.categories,
+                ),
+                "class_idx": safe_codes(
+                    test_df["class"].astype(str),
+                    categories.classes.categories,
+                ),
             },
         )
         mu_pred = pm.sample_posterior_predictive(idata, var_names=["mu"], predictions=True)

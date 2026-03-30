@@ -53,10 +53,9 @@ def encode_categories(
             # map known categories 0..n-1, reserve last index for unknowns
             maps[col] = {cat: i for i, cat in enumerate(cats)}
             maps[col]["__UNK__"] = len(cats)
-        else:
+        elif "__UNK__" not in maps[col]:
             # ensure the unknown bucket exists in reused maps
-            if "__UNK__" not in maps[col]:
-                maps[col]["__UNK__"] = len(maps[col])
+            maps[col]["__UNK__"] = len(maps[col])
 
         # map values; unseen -> __UNK__
         idx = series.map(maps[col]).fillna(maps[col]["__UNK__"]).astype(int).to_numpy()

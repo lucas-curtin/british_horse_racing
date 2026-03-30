@@ -2,59 +2,138 @@
   <img src="logo.png" alt="Project logo" width="200">
 </p>
 
-# British Horse Racing – Scraper & Bayesian Model
+# British Horse Racing - Scraper and Bayesian Model
 
-This project provides an **end-to-end pipeline** for working with British horse racing data:
+This repository currently contains a historical-results pipeline for British horse racing:
 
-- Scraping: Selenium scripts to collect fixtures, race results, horse details, and jockey details from the British Horseracing Authority (BHA).
-- Data preparation: Aggregates and cleans scraped results into structured datasets.
-- Modelling: A Bayesian hierarchical logistic regression (PyMC) trained on historical results to estimate win probabilities, including both fixed race features and random effects for horses, jockeys, trainers, and racecourses.
-- Predictions: Generates a simple betting summary with the top pick per race.
+- `full_scraper.py` scrapes monthly BHA results plus horse and jockey detail pages
+- `preprocessing.py` converts the scraped JSON into model-ready CSVs
+- `temp_model.py` and `model.py` fit PyMC models and evaluate predictions on a held-out historical split
 
----
+Important: the checked-in code is not currently a clean "tomorrow fixtures in, tomorrow predictions out" pipeline. The current modelling flow trains on historical results and scores a held-out test set from those same historical data.
 
-## Installation
+## Current Setup
 
-Clone the repository and create the environment:
+### 1. Create and activate the Conda environment
 
-git clone https://github.com/yourusername/british_horse_racing.git  
-cd british_horse_racing  
-conda env create -f environment.yml  
-conda activate british_horse_racing  
+Create the environment once:
 
-You will also need a local Chrome build and a matching ChromeDriver (included here under chrome-mac-x64/ and chromedriver-mac-x64/).
+```bash
+conda env update -f environment.yml --prune
+```
 
----
+Activate it for each session:
 
-## Usage
+```bash
+conda activate british_horse_racing
+```
 
-### 1. Scraping
+### 2. Check the browser paths in `config.yml`
 
-Run one of the scraping scripts to collect data:
+The scraper reads its browser paths from [config.yml](/Users/lucascurtin/Desktop/repos/british_horse_racing/config.yml).
 
-python results_scraper.py        # Monthly results  
-python fixture_scraper.py        # Fixture details  
-python horse_jockey_scraper.py   # Horse & jockey profiles  
+Current defaults on this Mac setup:
 
-The combined script full_scraper.py can run all stages in sequence.  
-Scraped data is written to output/.
+- `chromedriver_path` points to `chromedriver-mac-x64/chromedriver`
+- `chrome_path` points to `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
 
-### 2. Training and prediction
+The scraper now falls back to Selenium's default Chrome discovery and Selenium Manager if those local paths are missing, so it is more forgiving than before. If you want to set a custom Chrome binary explicitly, use:
 
-Once results data is available, train the Bayesian model and generate predictions:
+```yaml
+chrome_path: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+```
 
-python bayesian.py  
+Apple Silicon note: this repo's checked-in `chromedriver-mac-x64/chromedriver` is an Intel (`x86_64`) binary. On an `arm64` Mac, Selenium Manager is likely the safer path unless you know that driver works under Rosetta with your local Chrome install.
 
-This will write a betting summary per fixture/race to:
+### 3. Set the scrape date range
 
-output/bet_summary.txt
+Still in [config.yml](/Users/lucascurtin/Desktop/repos/british_horse_racing/config.yml), set:
 
----
+```yaml
+dates:
+  start: "2026-02-27"
+  end: "2026-03-27"
+```
 
-## Notes
+These are the current defaults and represent the last few days relative to March 27, 2026. The scraper uses monthly result pages, but it filters fixtures by their actual race date. Treat both `start` and `end` as inclusive. For a single-day run, set them to the same date.
 
-- Scraping relies on Selenium with headless Chrome; paths to Chrome and ChromeDriver are configured in the scripts.  
-- The BHA site structure can change, so selectors may require updates.  
-- Predictions are probabilistic estimates — use responsibly.
+## Run Order
 
----
+### 1. Scrape results and participant details
+
+```bash
+python full_scraper.py
+```
+
+This script:
+
+- scrapes monthly BHA race results into `output/results/*.json`
+- extracts horse names and jockey names from those results
+- scrapes horse details into `output/horse_details.json`
+- scrapes jockey details into `output/jockey_details.json`
+- records unresolved fixtures, horses, and jockeys in `output/missed/*.json` and retries them once at the end of the run
+
+### 2. Build the modelling datasets
+
+```bash
+python preprocessing.py
+```
+
+This writes:
+
+- `output/race_df.csv`
+- `output/horse_df.csv`
+- `output/jockey_df.csv`
+
+### 3. Train the model and generate evaluation predictions
+
+Recommended current model entrypoint:
+
+```bash
+python temp_model.py
+```
+
+This writes:
+
+- `output/model/model_fit.nc`
+- `output/predictions/predictions.csv`
+- `output/predictions/race_summary.csv`
+
+There is also an older alternative:
+
+```bash
+python model.py
+```
+
+## What Each Model Script Does
+
+- `temp_model.py`: the safer current option; standardises predictors and target, handles unseen categories more defensively, and evaluates on a held-out split of `output/race_df.csv`
+- `model.py`: similar historical train/test evaluation flow, but less defensive than `temp_model.py`
+
+## Expected Outputs
+
+After a successful historical run, you should have:
+
+- [output/results](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/results)
+- [output/horse_details.json](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/horse_details.json)
+- [output/jockey_details.json](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/jockey_details.json)
+- [output/race_df.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/race_df.csv)
+- [output/model/model_fit.nc](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/model/model_fit.nc)
+- [output/predictions/predictions.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/predictions/predictions.csv)
+- [output/predictions/race_summary.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/predictions/race_summary.csv)
+
+## Known Gaps
+
+- The README that originally shipped with the repo referred to scripts like `results_scraper.py`, `fixture_scraper.py`, `horse_jockey_scraper.py`, and `bayesian.py`, but those files are not present in the current checkout.
+- The current pipeline is for historical scraping and evaluation, not next-day fixture prediction.
+- On Apple Silicon, you may still want to rely on Selenium Manager rather than the checked-in Intel chromedriver binary.
+
+## Quick Start
+
+Once the environment is active:
+
+```bash
+python full_scraper.py
+python preprocessing.py
+python temp_model.py
+```
