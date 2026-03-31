@@ -4,10 +4,23 @@ For now this script keeps the current best available batch trainer/evaluator
 while also validating the curated sequential-model input contract at startup.
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent
+RUNTIME_CACHE_DIR = Path(tempfile.gettempdir()) / "british_horse_racing_runtime_cache"
+MPL_CACHE_DIR = RUNTIME_CACHE_DIR / "matplotlib"
+PYTENSOR_CACHE_DIR = RUNTIME_CACHE_DIR / "pytensor"
+MPL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+PYTENSOR_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("MPLCONFIGDIR", str(MPL_CACHE_DIR))
+os.environ.setdefault("PYTENSOR_FLAGS", f"base_compiledir={PYTENSOR_CACHE_DIR}")
 
 import arviz as az
 import numpy as np
@@ -25,7 +38,6 @@ from model_feature_spec import (
     validate_model_input_frame,
 )
 
-BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "output"
 MODEL_DIR = OUTPUT_DIR / "model"
 PREDICTIONS_DIR = OUTPUT_DIR / "predictions"
