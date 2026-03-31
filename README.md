@@ -8,8 +8,7 @@ This repository currently contains a historical-results pipeline for British hor
 
 - `full_scraper.py` scrapes monthly BHA results and fixture-level non-runner information
 - `preprocessing.py` converts the scraped JSON into wide audit tables plus curated model-input CSVs
-- `temp_model.py` and `model.py` fit PyMC models and evaluate predictions on a held-out historical split
-- `sequential_model.py` validates and loads the explicit feature-contract input for the next sequential model path
+- `sequential_model.py` is the single model entrypoint; it validates the curated sequential-model input and runs the current best available historical trainer/evaluator
 
 Important: the checked-in code is not currently a clean "tomorrow fixtures in, tomorrow predictions out" pipeline. The current modelling flow trains on historical results and scores a held-out test set from those same historical data.
 
@@ -89,10 +88,10 @@ This writes:
 
 ### 3. Train the model and generate evaluation predictions
 
-Recommended current model entrypoint:
+Canonical model entrypoint:
 
 ```bash
-python temp_model.py
+python sequential_model.py
 ```
 
 This writes:
@@ -100,17 +99,15 @@ This writes:
 - `output/model/model_fit.nc`
 - `output/predictions/predictions.csv`
 - `output/predictions/race_summary.csv`
+- validates `output/model_inputs/sequential_ranking_input.csv` before training
+- currently trains from `output/historical_features.csv` while the true sequential NUTS model is still being built
 
-There is also an older alternative:
+## Model Status
 
-```bash
-python model.py
-```
-
-## What Each Model Script Does
-
-- `temp_model.py`: the safer current option; trains from `output/historical_features.csv`, handles unseen categories more defensively, and evaluates on a held-out chronological split
-- `model.py`: similar historical train/test evaluation flow, but less defensive than `temp_model.py`
+- `sequential_model.py` is the only supported model script
+- the curated sequential input contract already exists at `output/model_inputs/sequential_ranking_input.csv`
+- the current training path is still historical batch evaluation, absorbed from the older safer trainer
+- the next major step is replacing the absorbed trainer inside `sequential_model.py` with the true sequential Bayesian model
 
 ## Expected Outputs
 
@@ -138,5 +135,5 @@ Once the environment is active:
 ```bash
 python full_scraper.py
 python preprocessing.py
-python temp_model.py
+python sequential_model.py
 ```
