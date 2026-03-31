@@ -6,9 +6,10 @@
 
 This repository currently contains a historical-results pipeline for British horse racing:
 
-- `full_scraper.py` scrapes monthly BHA results plus horse and jockey detail pages
-- `preprocessing.py` converts the scraped JSON into model-ready CSVs
+- `full_scraper.py` scrapes monthly BHA results and fixture-level non-runner information
+- `preprocessing.py` converts the scraped JSON into wide audit tables plus curated model-input CSVs
 - `temp_model.py` and `model.py` fit PyMC models and evaluate predictions on a held-out historical split
+- `sequential_model.py` validates and loads the explicit feature-contract input for the next sequential model path
 
 Important: the checked-in code is not currently a clean "tomorrow fixtures in, tomorrow predictions out" pipeline. The current modelling flow trains on historical results and scores a held-out test set from those same historical data.
 
@@ -59,7 +60,7 @@ These are the current defaults and represent the last few days relative to March
 
 ## Run Order
 
-### 1. Scrape results and participant details
+### 1. Scrape fixture results
 
 ```bash
 python full_scraper.py
@@ -68,10 +69,8 @@ python full_scraper.py
 This script:
 
 - scrapes monthly BHA race results into `output/results/*.json`
-- extracts horse names and jockey names from those results
-- scrapes horse details into `output/horse_details.json`
-- scrapes jockey details into `output/jockey_details.json`
-- records unresolved fixtures, horses, and jockeys in `output/missed/*.json` and retries them once at the end of the run
+- captures fixture-level non-runner entries alongside race results
+- records unresolved fixtures in `output/missed/*.json` and retries them once at the end of the run
 
 ### 2. Build the modelling datasets
 
@@ -81,9 +80,12 @@ python preprocessing.py
 
 This writes:
 
-- `output/race_df.csv`
+- `output/race_results.csv`
+- `output/non_runner_events.csv`
+- `output/historical_features.csv`
 - `output/horse_df.csv`
 - `output/jockey_df.csv`
+- `output/model_inputs/sequential_ranking_input.csv`
 
 ### 3. Train the model and generate evaluation predictions
 
@@ -107,7 +109,7 @@ python model.py
 
 ## What Each Model Script Does
 
-- `temp_model.py`: the safer current option; standardises predictors and target, handles unseen categories more defensively, and evaluates on a held-out split of `output/race_df.csv`
+- `temp_model.py`: the safer current option; trains from `output/historical_features.csv`, handles unseen categories more defensively, and evaluates on a held-out chronological split
 - `model.py`: similar historical train/test evaluation flow, but less defensive than `temp_model.py`
 
 ## Expected Outputs
@@ -115,9 +117,10 @@ python model.py
 After a successful historical run, you should have:
 
 - [output/results](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/results)
-- [output/horse_details.json](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/horse_details.json)
-- [output/jockey_details.json](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/jockey_details.json)
-- [output/race_df.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/race_df.csv)
+- [output/race_results.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/race_results.csv)
+- [output/non_runner_events.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/non_runner_events.csv)
+- [output/historical_features.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/historical_features.csv)
+- [output/model_inputs/sequential_ranking_input.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/model_inputs/sequential_ranking_input.csv)
 - [output/model/model_fit.nc](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/model/model_fit.nc)
 - [output/predictions/predictions.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/predictions/predictions.csv)
 - [output/predictions/race_summary.csv](/Users/lucascurtin/Desktop/repos/british_horse_racing/output/predictions/race_summary.csv)

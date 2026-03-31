@@ -108,29 +108,114 @@ def parse_fixture_date(date_text: str, year: int) -> date | None:
 
 def parse_listing_date(item_text: str, year: int) -> date | None:
     """Best-effort parse of a fixture date from the monthly results list item text."""
+    lines = [line.strip() for line in item_text.splitlines() if line.strip()]
+    header_candidates = lines[:3] if lines else [item_text.strip()]
     patterns = [
+        r"\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\d{1,2}\s+[A-Za-z]{3,9}\b",
         r"\b\d{1,2}\s+[A-Za-z]{3,9}\b",
         r"\b[A-Za-z]{3,9}\s+\d{1,2}\b",
-        r"\b\d{1,2}/\d{1,2}\b",
-        r"\b\d{1,2}-\d{1,2}\b",
     ]
-    for pattern in patterns:
-        match = re.search(pattern, item_text)
-        if not match:
-            continue
-        parsed = pd.to_datetime(f"{match.group(0)} {year}", dayfirst=True, errors="coerce")
-        if not pd.isna(parsed):
-            return parsed.date()
-    parsed = pd.to_datetime(f"{item_text} {year}", dayfirst=True, errors="coerce")
-    if pd.isna(parsed):
-        return None
-    return parsed.date()
+
+    for candidate in header_candidates:
+        for pattern in patterns:
+            match = re.search(pattern, candidate)
+            if not match:
+                continue
+            date_text = re.sub(
+                r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+",
+                "",
+                match.group(0),
+            )
+            parsed = pd.to_datetime(f"{date_text} {year}", dayfirst=True, errors="coerce")
+            if not pd.isna(parsed):
+                return parsed.date()
+
+    return None
 
 
 def write_json(path: Path, payload: object) -> None:
     """Write JSON payload with stable formatting."""
     with path.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def expand_fixture_non_runners(driver: webdriver.Chrome) -> bool:
+    """Expand the fixture non-runners panel when present."""
+    try:
+        toggle = driver.find_element(By.CSS_SELECTOR, "a.runners-toggle")
+        toggle_classes = toggle.get_attribute("class") or ""
+        if "state--triggered" in toggle_classes:
+            return True
+
+        driver.execute_script("arguments[0].scrollIntoView(true);", toggle)
+        time.sleep(0.1)
+        toggle.click()
+        WebDriverWait(driver, 2).until(
+            lambda current_driver: bool(
+                current_driver.find_elements(
+                    By.CSS_SELECTOR,
+                    "#fixture-nonrunners-list li",
+                ),
+            )
+            or "hidden"
+            not in (
+                current_driver.find_element(
+                    By.ID,
+                    "fixture-nonrunners-list",
+                ).get_attribute("class")
+                or ""
+            ),
+        )
+    except NoSuchElementException:
+        return False
+    except TimeoutException:
+        logger.warning("Timed out waiting for fixture non-runner details to expand.")
+        return False
+    return True
+
+
+def extract_fixture_non_runners(driver: webdriver.Chrome) -> list[dict]:
+    """Extract fixture-level non-runner summary entries."""
+    if not expand_fixture_non_runners(driver):
+        return []
+
+    non_runner_list = driver.find_element(By.XPATH, '//*[@id="fixture-nonrunners-list"]')
+
+    race_entries = non_runner_list.find_elements(By.XPATH, "./li")
+    non_runners: list[dict] = []
+    for race_entry in race_entries:
+        race_time = safe_text(race_entry, './/div[contains(@class, "nr-race-time")]')
+        entry_nodes = race_entry.find_elements(
+            By.XPATH,
+            './/div[contains(@class, "non-runner-entry")]',
+        )
+        for entry_node in entry_nodes:
+            horse_name = safe_text(entry_node, './/span[contains(@class, "entry-title")]')
+            text_spans = entry_node.find_elements(
+                By.XPATH,
+                './/span[contains(@class, "entry-text")]/span',
+            )
+            declared_at = "nan"
+            reason = "nan"
+            for text_span in text_spans:
+                span_text = text_span.text.strip()
+                if not span_text:
+                    continue
+                if span_text.startswith("Reason:"):
+                    reason = span_text.replace("Reason:", "", 1).strip() or "nan"
+                elif declared_at == "nan":
+                    declared_at = span_text
+            if horse_name == "nan":
+                continue
+            non_runners.append(
+                {
+                    "race_time": race_time,
+                    "horse_name": horse_name,
+                    "declared_at": declared_at,
+                    "reason": reason,
+                },
+            )
+    return non_runners
 
 
 def log_stage_summary(stage: str, completed: int, missed: int) -> None:
@@ -156,7 +241,171 @@ def click_expand_button(
     time.sleep(0.1)
 
 
-def extract_races(driver: webdriver.Chrome) -> list[dict]:
+def normalize_cell_text(text: str) -> str:
+    """Normalize visible table text while preserving line-level structure."""
+    cleaned_lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n".join(cleaned_lines) if cleaned_lines else "nan"
+
+
+def normalize_inline_text(parts: list[str]) -> str:
+    """Join visible inline text fragments into a stable single-line value."""
+    cleaned_parts = [part.strip() for part in parts if part and part.strip()]
+    return " ".join(cleaned_parts) if cleaned_parts else "nan"
+
+
+def click_elements(
+    driver: webdriver.Chrome,
+    elements: list[webdriver.remote.webelement.WebElement],
+) -> None:
+    """Click a list of elements with the same defensive behaviour as other expanders."""
+    for element in elements:
+        driver.execute_script("arguments[0].scrollIntoView(true);", element)
+        time.sleep(0.1)
+        try:
+            element.click()
+        except WebDriverException as exc:
+            logger.debug("Could not click expandable element: {}", exc)
+        time.sleep(0.1)
+
+
+def extract_race_details(card: webdriver.remote.webelement.WebElement) -> dict[str, str]:
+    """Extract flexible race metadata from the local race details list."""
+    detail_lists = card.find_elements(By.CSS_SELECTOR, "ul.info-list")
+    if not detail_lists:
+        return {}
+
+    details: dict[str, str] = {}
+    for entry in detail_lists[0].find_elements(By.CSS_SELECTOR, "li.meta-entry"):
+        label = normalize_inline_text(
+            [
+                node.text
+                for node in entry.find_elements(By.CSS_SELECTOR, ".entry-title")
+            ],
+        ).rstrip(":")
+        value_nodes = entry.find_elements(
+            By.CSS_SELECTOR,
+            ".entry-body, .inline-field-value",
+        )
+        value = normalize_inline_text([node.text for node in value_nodes])
+        if label == "nan" or value == "nan":
+            continue
+        details[label] = value
+    return details
+
+
+def extract_runner_links(
+    entry: webdriver.remote.webelement.WebElement,
+) -> dict[str, str]:
+    """Extract horse, jockey, and trainer links from a runner row."""
+    link_map = {
+        "horse_url": './/a[contains(@class, "table-link--horse")]',
+        "jockey_url": './/a[contains(@class, "table-link--jockey")]',
+        "trainer_url": './/a[contains(@class, "table-link--trainer")]',
+    }
+    links: dict[str, str] = {}
+    for key, xpath in link_map.items():
+        try:
+            href = entry.find_element(By.XPATH, xpath).get_attribute("href")
+        except NoSuchElementException:
+            href = ""
+        links[key] = href or "nan"
+    return links
+
+
+def extract_jockey_name(entry: webdriver.remote.webelement.WebElement) -> str:
+    """Extract a jockey name whether or not it is rendered as a clickable link."""
+    linked_name = safe_text(entry, './/a[contains(@class, "table-link--jockey")]')
+    if linked_name != "nan":
+        return linked_name
+    return safe_text(entry, './/span[contains(@class, "jockeyname")]')
+
+
+def extract_distance_time_cell(
+    entry: webdriver.remote.webelement.WebElement,
+) -> tuple[str, str, str]:
+    """Extract the raw distance/timing cell plus its margin and finish-time parts."""
+    try:
+        cell = entry.find_element(By.CSS_SELECTOR, "div.table-cell.w20.distance")
+    except NoSuchElementException:
+        return "nan", "nan", "nan"
+
+    distance_nodes = cell.find_elements(
+        By.XPATH,
+        './/span[contains(@class, "inline-field-value")]//span[not(self::small)]',
+    )
+    distance_text = normalize_inline_text([node.text for node in distance_nodes])
+    finish_time = safe_text(cell, './/small[@title="Finish Time"]')
+
+    raw_parts: list[str] = []
+    if distance_text != "nan":
+        raw_parts.append(distance_text)
+    if finish_time != "nan":
+        raw_parts.append(finish_time)
+    raw_value = normalize_inline_text(raw_parts)
+    return raw_value, distance_text, finish_time
+
+
+def extract_runner_row(
+    entry: webdriver.remote.webelement.WebElement,
+    runner_index: int,
+) -> tuple[dict, bool]:
+    """Extract a runner row while preserving legacy fields and richer table data."""
+    cells = entry.find_elements(By.CSS_SELECTOR, "div.table-cell")
+    raw_columns = {
+        "position": normalize_cell_text(cells[0].text) if len(cells) > 0 else "nan",
+        "horse_jockey": normalize_cell_text(cells[1].text) if len(cells) > 1 else "nan",
+        "trainer_owner": normalize_cell_text(cells[2].text) if len(cells) > 2 else "nan",
+        "distance_time": "nan",
+        "sp": normalize_cell_text(cells[4].text) if len(cells) > 4 else "nan",
+    }
+
+    raw_distance_time, distance_text, finish_time = extract_distance_time_cell(entry)
+    raw_columns["distance_time"] = raw_distance_time
+
+    links = extract_runner_links(entry)
+    position_xpath = './/div[contains(@class, "no-draw")]//span[contains(@class, "h1")]'
+    owner_xpath = './/div[contains(@class, "trainer")]//small[contains(@class, "ownerName")]'
+    table_data = {
+        "position_text": safe_text(entry, position_xpath),
+        "cloth_number": safe_text(entry, './/small[contains(@class, "cloth-indicator")]'),
+        "horse_name": safe_text(entry, './/a[contains(@class, "table-link--horse")]'),
+        "horse_url": links["horse_url"],
+        "jockey_name": extract_jockey_name(entry),
+        "jockey_url": links["jockey_url"],
+        "handicap_mark_text": normalize_inline_text(
+            [
+                node.text
+                for node in entry.find_elements(
+                    By.XPATH,
+                    './/div[contains(@class, "name")]//small[contains(@class, "ownerName")]',
+                )
+            ],
+        ),
+        "trainer_name": safe_text(entry, './/a[contains(@class, "table-link--trainer")]'),
+        "trainer_url": links["trainer_url"],
+        "owner_name": safe_text(entry, owner_xpath),
+        "distance_text": distance_text,
+        "finish_time": finish_time,
+        "sp_text": raw_columns["sp"],
+    }
+
+    missing_sections = any(
+        value == "nan" for value in (raw_columns["distance_time"], raw_columns["sp"])
+    )
+    runner_data = {
+        "runner_index": runner_index,
+        "position": raw_columns["position"],
+        "horse_jockey": raw_columns["horse_jockey"],
+        "trainer_owner": raw_columns["trainer_owner"],
+        "distance_time": raw_columns["distance_time"],
+        "sp": raw_columns["sp"],
+        "raw_columns": raw_columns,
+        "table_data": table_data,
+    }
+    return runner_data, missing_sections
+
+
+def extract_races(driver: webdriver.Chrome, fixture_url: str) -> list[dict]:
     """Expand and extract populated race cards from the current fixture page."""
     for btn in driver.find_elements(
         By.XPATH,
@@ -174,21 +423,24 @@ def extract_races(driver: webdriver.Chrome) -> list[dict]:
         )
     ]
     races: list[dict] = []
+    empty_detail_races: list[str] = []
+    runner_section_issues: list[str] = []
+
     for i, card in enumerate(cards, start=1):
         race_time = card.find_element(By.CSS_SELECTOR, ".table-cell.w10.time").text
         race_name = card.find_element(By.CSS_SELECTOR, ".table-cell.w40.name").text
         race_dist = card.find_element(By.CSS_SELECTOR, ".table-cell.w20.race-distance").text
         winner = card.find_element(By.CSS_SELECTOR, ".table-cell.w25.last-col.winner").text
+        race_details = extract_race_details(card)
+        if not race_details:
+            empty_detail_races.append(f"{i}:{race_time}")
 
         runners: list[dict] = []
         for j, entry in enumerate(card.find_elements(By.XPATH, "./div[2]//ul/li"), start=1):
-            cells = entry.find_elements(By.CSS_SELECTOR, "div.table-cell")
-            cols = ["position", "horse_jockey", "trainer_owner", "distance_time", "sp"]
-            data = {"runner_index": j}
-            for idx, cell in enumerate(cells):
-                key = cols[idx] if idx < len(cols) else f"col_{idx}"
-                data[key] = cell.text.strip() or "nan"
-            runners.append(data)
+            runner_data, missing_sections = extract_runner_row(entry, j)
+            if missing_sections:
+                runner_section_issues.append(f"{i}:{race_time}:runner_{j}")
+            runners.append(runner_data)
 
         races.append(
             {
@@ -197,33 +449,145 @@ def extract_races(driver: webdriver.Chrome) -> list[dict]:
                 "name": race_name,
                 "distance": race_dist,
                 "winner_info": winner,
+                "race_details": race_details,
                 "runners": runners,
             },
+        )
+
+    if empty_detail_races:
+        logger.warning(
+            "Fixture {} had races with empty race details: {}",
+            fixture_url,
+            ", ".join(empty_detail_races),
+        )
+    if runner_section_issues:
+        logger.warning(
+            "Fixture {} had runner rows missing distance/sp sections: {}",
+            fixture_url,
+            ", ".join(runner_section_issues),
         )
     return races
 
 
+def extract_horse_rating_histories(driver: webdriver.Chrome) -> dict[str, dict[str, object]]:
+    """Extract current ratings and expanded rating histories for a horse."""
+    toggle_buttons = driver.find_elements(
+        By.CSS_SELECTOR,
+        ".expand-handicapperRatingsHistory",
+    )
+    click_elements(driver, toggle_buttons)
+
+    rating_lists = driver.find_elements(
+        By.XPATH,
+        '//*[@id="horse-single-info"]/div[2]//ul[contains(@class, "info-list")]',
+    )
+    ratings: dict[str, dict[str, object]] = {}
+    if len(rating_lists) < 2:
+        return ratings
+
+    valid_race_types = {"flat", "chase", "hurdle", "awt"}
+    for entry in rating_lists[1].find_elements(By.XPATH, "./li"):
+        race_type = safe_text(entry, './/span[contains(@class, "entry-title")]').rstrip(":").lower()
+        if race_type not in valid_race_types:
+            continue
+        current_value = safe_text(entry, './/span[contains(@class, "entry-body")]')
+        last_published = safe_text(entry, ".//small")
+        history: list[dict[str, str]] = []
+        history_nodes = entry.find_elements(
+            By.CSS_SELECTOR,
+            ".handicapperRatingsHistory span",
+        )
+        for history_node in history_nodes:
+            history_text = normalize_inline_text([history_node.text]).replace("\xa0", " ")
+            if ":" not in history_text:
+                continue
+            published_at, rating_value = history_text.split(":", 1)
+            history.append(
+                {
+                    "published_at": published_at.strip(),
+                    "rating": rating_value.strip(),
+                },
+            )
+        ratings[race_type] = {
+            "current": current_value,
+            "last_published": last_published,
+            "history": history,
+        }
+    return ratings
+
+
+def extract_horse_training_history(driver: webdriver.Chrome) -> list[dict[str, str]]:
+    """Extract training history rows from the horse profile table."""
+    history_rows = driver.find_elements(
+        By.CSS_SELECTOR,
+        "#horse-entries-table li.table-entry",
+    )
+    training_history: list[dict[str, str]] = []
+    training_type_xpath = (
+        './/span[contains(@class, "inline-field-title") and contains(text(), "Training Type")]'
+        "/following-sibling::span"
+    )
+    trainer_xpath = (
+        './/span[contains(@class, "inline-field-title") and contains(text(), "Trainer")]'
+        "/following-sibling::span"
+    )
+    start_date_xpath = (
+        './/span[contains(@class, "inline-field-title") and contains(text(), "Start Date")]'
+        "/following-sibling::span"
+    )
+    end_date_xpath = (
+        './/span[contains(@class, "inline-field-title") and contains(text(), "End Date")]'
+        "/following-sibling::span"
+    )
+    for row in history_rows:
+        trainer_link = row.find_elements(By.XPATH, './/a[contains(@href, "/trainer/#!/")]')
+        trainer_url = trainer_link[0].get_attribute("href") if trainer_link else "nan"
+        training_history.append(
+            {
+                "training_type": safe_text(row, training_type_xpath),
+                "trainer": safe_text(row, trainer_xpath),
+                "trainer_url": trainer_url or "nan",
+                "start_date": safe_text(row, start_date_xpath),
+                "end_date": safe_text(row, end_date_xpath),
+            },
+        )
+    return training_history
+
+
 # ————— Scraping helpers —————
-def collect_fixture_links(driver: webdriver.Chrome, config: Config, year: int) -> list[str]:
-    """Scroll results list to collect fixture URLs within the configured date range."""
+def collect_fixture_links(driver: webdriver.Chrome, year: int) -> list[str]:
+    """Scroll results list to collect all fixture URLs for the month page."""
     seen_hrefs: set[str] = set()
+    logged_sample_row = False
     while True:
         results_list = WebDriverWait(driver, 10).until(
             ec.presence_of_element_located((By.ID, "results-list")),
         )
+        WebDriverWait(driver, 10).until(
+            lambda current_driver: bool(
+                current_driver.find_elements(By.CSS_SELECTOR, "#results-list li"),
+            ),
+        )
         all_items = results_list.find_elements(By.TAG_NAME, "li") or []
-        fixture_items = []
+        linked_items = []
         for li in all_items:
             links = li.find_elements(By.TAG_NAME, "a")
             if not links:
                 continue
-            item_date = parse_listing_date(li.text, year)
-            if item_date and not (config.start_date <= item_date <= config.end_date):
-                continue
-            fixture_items.append(li)
-        if not fixture_items:
+            if not logged_sample_row:
+                item_date = parse_listing_date(li.text, year)
+                sample_lines = [line.strip() for line in li.text.splitlines() if line.strip()][:6]
+                logger.info(
+                    "Sample monthly row lines: {} | parsed_date={}",
+                    sample_lines,
+                    item_date,
+                )
+                logged_sample_row = True
+            linked_items.append(li)
+        if not linked_items:
+            logger.warning("Results list had no linked fixture rows.")
             break
-        hrefs = [li.find_element(By.TAG_NAME, "a").get_attribute("href") for li in fixture_items]
+        hrefs = [li.find_element(By.TAG_NAME, "a").get_attribute("href") for li in linked_items]
 
         new_hrefs = [href for href in hrefs if href not in seen_hrefs]
         if not new_hrefs:
@@ -234,7 +598,7 @@ def collect_fixture_links(driver: webdriver.Chrome, config: Config, year: int) -
 
         driver.execute_script(
             "arguments[0].scrollIntoView({block: 'end', behavior: 'smooth'});",
-            fixture_items[-1],
+            linked_items[-1],
         )
         time.sleep(2)
 
@@ -266,7 +630,8 @@ def scrape_fixture(
         going_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[1]')
         weather_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[2]')
         other_text = safe_text(driver, '//*[@id="fixture-header-ui"]/div/div/div[3]')
-        races = extract_races(driver)
+        non_runners = extract_fixture_non_runners(driver)
+        races = extract_races(driver, request.fixture_url)
         if not races:
             logger.warning("No populated race cards for fixture {}, skipping.", request.fixture_url)
             return None, True
@@ -280,6 +645,7 @@ def scrape_fixture(
             "going": going_text,
             "weather": weather_text,
             "other_text": other_text,
+            "non_runners": non_runners,
             "races": races,
         }
         fixture_date = parse_fixture_date(fixture_data["date"], request.year)
@@ -328,7 +694,7 @@ def process_month_results(
     driver.refresh()
     time.sleep(1)
 
-    fixtures = collect_fixture_links(driver, config, year)
+    fixtures = collect_fixture_links(driver, year)
     all_fixtures_data: list[dict] = []
     retry_fixtures: list[FixtureRequest] = []
     main_tab = driver.current_window_handle
@@ -451,8 +817,14 @@ def _scrape_single_horse(
             ec.presence_of_element_located((By.XPATH, '//*[@id="horse-single-info"]/div[1]')),
         ).text
         specific = driver.find_element(By.XPATH, '//*[@id="horse-single-info"]/div[2]').text
+        ratings_history = extract_horse_rating_histories(driver)
+        training_history = extract_horse_training_history(driver)
 
-        data: dict = {"name": horse, "url": href}
+        data: dict = {
+            "name": horse,
+            "url": href,
+            "as_of_date": pd.Timestamp.now().date().isoformat(),
+        }
         lines = general.split("\n")
         if len(lines) > 1 and "b." in lines[1]:
             t, y = lines[1].split("b.", 1)
@@ -466,6 +838,8 @@ def _scrape_single_horse(
             k = k.strip().lower().replace(" ", "_")
             if k != "associated_content":
                 data[k] = v.strip()
+        data["ratings_history"] = ratings_history
+        data["training_history"] = training_history
     except (TimeoutException, NoSuchElementException, WebDriverException) as e:
         logger.error(f"Failed to scrape horse {horse}: {e}")
         return None
@@ -530,7 +904,13 @@ def _scrape_single_jockey(
         logger.error(f"Failed to scrape jockey {jockey}: {e}")
         return None
     else:
-        return {"name": jockey, "url": href, "jockey_info": info, "career_info": career}
+        return {
+            "name": jockey,
+            "url": href,
+            "as_of_date": pd.Timestamp.now().date().isoformat(),
+            "jockey_info": info,
+            "career_info": career,
+        }
 
 
 def scrape_jockeys(jockeys_chunk: list[str], config: Config) -> tuple[list[dict], list[str]]:
@@ -642,37 +1022,14 @@ def run_detail_stage(
 
 # ————— Main runner —————
 def main() -> None:
-    """Execute monthly scraping, aggregate runner names, then scrape horse and jockey details."""
+    """Execute monthly fixture scraping only."""
     config = Config("config.yml")
     all_results, _ = scrape_monthly_results(config)
 
     if not all_results:
         logger.warning(
-            "No fixtures were scraped for the configured date range; skipping detail stages.",
+            "No fixtures were scraped for the configured date range.",
         )
-        return
-
-    horse_names, jockey_names = collect_runner_names(all_results)
-    run_detail_stage(
-        DetailStageSpec(
-            stage_name="Jockey",
-            scrape_fn=scrape_jockeys,
-            out_file="jockey_details.json",
-            missed_file=config.missed_dir / "jockeys.json",
-        ),
-        jockey_names,
-        config,
-    )
-    run_detail_stage(
-        DetailStageSpec(
-            stage_name="Horse",
-            scrape_fn=scrape_horses,
-            out_file="horse_details.json",
-            missed_file=config.missed_dir / "horses.json",
-        ),
-        horse_names,
-        config,
-    )
 
 
 if __name__ == "__main__":
